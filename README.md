@@ -16,8 +16,8 @@ Instead of relying on a single model's perspective, Mix of Experts fans out prom
 ## Installation
 
 ```bash
-# Step 1: Register the plugin as a local marketplace
-claude plugin marketplace add /path/to/mix_of_experts_plugin
+# Step 1: Register the plugin marketplace
+claude plugin marketplace add michaelwiner/mix-of-experts-plugin
 
 # Step 2: Install the plugin
 claude plugin install mix-of-experts
