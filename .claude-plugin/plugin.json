@@ -1,0 +1,8 @@
+{
+  "name": "mix-of-experts",
+  "version": "0.1.0",
+  "description": "Feature development workflow powered by multi-model consultation. Orchestrates GPT, Gemini, Deepseek and other models as expert consultants at key decision points.",
+  "author": {
+    "name": "mwiner"
+  }
+}

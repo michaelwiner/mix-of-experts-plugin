@@ -1,0 +1,18 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "mix-of-experts",
+  "version": "0.1.0",
+  "description": "Multi-model consultation workflow for feature development using OpenRouter",
+  "owner": {
+    "name": "Michael Winer"
+  },
+  "plugins": [
+    {
+      "name": "mix-of-experts",
+      "description": "Multi-model consultation workflow for feature development using OpenRouter",
+      "version": "0.1.0",
+      "source": "./",
+      "category": "development"
+    }
+  ]
+}
