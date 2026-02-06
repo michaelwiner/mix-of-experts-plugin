@@ -114,7 +114,20 @@ Parse `OUTPUT_DIR` from the result, then read each response file.
 
 - `curl` — HTTP client for API calls
 - `jq` — JSON parsing (must be installed)
+- `bc` — Arithmetic for cost calculation and input validation
 - `bash` 4+ — for parallel execution
+
+## Input Validation
+
+The script validates all settings before making API calls:
+
+- `max_tokens`: must be a positive integer
+- `temperature`: must be a number between 0.0 and 2.0
+- `timeout`: must be a positive integer
+- `retries`: must be a non-negative integer
+- Model names: must match `provider/model-name` format
+
+Invalid values produce a clear error and exit immediately.
 
 ## Error Handling
 

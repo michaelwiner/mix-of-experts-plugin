@@ -1,0 +1,18 @@
+{
+  "description": "Mix of Experts pre-flight validation",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/scripts/validate-setup.sh",
+            "timeout": 10,
+            "statusMessage": "Validating MoE plugin setup..."
+          }
+        ]
+      }
+    ]
+  }
+}

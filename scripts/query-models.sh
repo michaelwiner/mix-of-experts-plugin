@@ -5,7 +5,7 @@
 set -euo pipefail
 
 # ── Dependency checks ──────────────────────────────────────────────
-for cmd in curl jq; do
+for cmd in curl jq bc; do
   if ! command -v "$cmd" &>/dev/null; then
     echo "ERROR: Required dependency '$cmd' is not installed." >&2
     echo "  Install with: brew install $cmd" >&2
@@ -79,7 +79,7 @@ fi
 
 # Extract optional fields (|| true prevents set -e from killing on no match)
 MAX_TOKENS=$(echo "$FRONTMATTER" | grep '^max_tokens:' | sed 's/^max_tokens: *//' || true)
-[[ -z "$MAX_TOKENS" ]] && MAX_TOKENS=4096
+[[ -z "$MAX_TOKENS" ]] && MAX_TOKENS=8192
 
 TEMPERATURE=$(echo "$FRONTMATTER" | grep '^temperature:' | sed 's/^temperature: *//' || true)
 [[ -z "$TEMPERATURE" ]] && TEMPERATURE=0.3
@@ -92,6 +92,61 @@ MAX_RETRIES=$(echo "$FRONTMATTER" | grep '^retries:' | sed 's/^retries: *//' || 
 
 FALLBACKS_RAW=$(echo "$FRONTMATTER" | grep '^fallback_models:' | sed 's/^fallback_models: *//' || true)
 
+# ── Validate settings ─────────────────────────────────────────────
+validate_positive_int() {
+  local NAME="$1" VALUE="$2"
+  if ! [[ "$VALUE" =~ ^[0-9]+$ ]] || [[ "$VALUE" -le 0 ]]; then
+    echo "ERROR: $NAME must be a positive integer, got '$VALUE'" >&2
+    exit 1
+  fi
+}
+
+validate_non_negative_int() {
+  local NAME="$1" VALUE="$2"
+  if ! [[ "$VALUE" =~ ^[0-9]+$ ]]; then
+    echo "ERROR: $NAME must be a non-negative integer, got '$VALUE'" >&2
+    exit 1
+  fi
+}
+
+validate_temperature() {
+  local VALUE="$1"
+  if ! [[ "$VALUE" =~ ^[0-9]+\.?[0-9]*$ ]]; then
+    echo "ERROR: temperature must be a number between 0.0 and 2.0, got '$VALUE'" >&2
+    exit 1
+  fi
+  if [[ $(echo "$VALUE > 2" | bc -l) -eq 1 ]]; then
+    echo "ERROR: temperature must be between 0.0 and 2.0, got '$VALUE'" >&2
+    exit 1
+  fi
+}
+
+validate_model_name() {
+  local MODEL
+  MODEL=$(echo "$1" | tr -d ' ')
+  if ! [[ "$MODEL" =~ ^[a-zA-Z0-9_-]+/[a-zA-Z0-9._-]+$ ]]; then
+    echo "ERROR: Invalid model name: '$MODEL'. Expected format: provider/model-name" >&2
+    exit 1
+  fi
+}
+
+validate_positive_int "max_tokens" "$MAX_TOKENS"
+validate_temperature "$TEMPERATURE"
+validate_positive_int "timeout" "$TIMEOUT"
+validate_non_negative_int "retries" "$MAX_RETRIES"
+
+IFS=',' read -ra _VALIDATE_MODELS <<< "$MODELS_RAW"
+for _VM in "${_VALIDATE_MODELS[@]}"; do
+  validate_model_name "$_VM"
+done
+
+if [[ -n "$FALLBACKS_RAW" ]]; then
+  IFS=',' read -ra _VALIDATE_FALLBACKS <<< "$FALLBACKS_RAW"
+  for _VF in "${_VALIDATE_FALLBACKS[@]}"; do
+    validate_model_name "$_VF"
+  done
+fi
+
 # Read prompt
 PROMPT=$(cat "$PROMPT_FILE")
 
@@ -103,6 +158,7 @@ fi
 # ── Cache setup ────────────────────────────────────────────────────
 CACHE_DIR="${HOME}/.cache/moe-plugin"
 mkdir -p "$CACHE_DIR"
+chmod 700 "$CACHE_DIR"
 
 PROMPT_HASH=$(shasum -a 256 "$PROMPT_FILE" 2>/dev/null | cut -d' ' -f1 || md5 -q "$PROMPT_FILE" 2>/dev/null || echo "nohash")
 
@@ -114,6 +170,19 @@ cache_key() {
 
 # ── Create output directory ────────────────────────────────────────
 OUTPUT_DIR=$(mktemp -d)
+
+# Track temp files for cleanup on exit/signal
+_MOE_TEMP_FILES=()
+
+_moe_cleanup() {
+  for f in "${_MOE_TEMP_FILES[@]}"; do
+    rm -f "$f" 2>/dev/null
+  done
+  rm -f "$OUTPUT_DIR"/*.status "$OUTPUT_DIR"/*.gen-id 2>/dev/null
+}
+
+trap _moe_cleanup EXIT INT TERM
+
 echo "OUTPUT_DIR=$OUTPUT_DIR"
 
 # Split models into array
@@ -145,7 +214,9 @@ What could go wrong with this approach. What you are trading away. Be honest abo
 ## Confidence
 State HIGH, MEDIUM, or LOW confidence in this proposal, with a one-sentence justification.
 
-Be specific and opinionated. Every section is required."
+Be specific and opinionated. Every section is required.
+
+IMPORTANT: Your response is limited to ${MAX_TOKENS} tokens. Be concise and prioritize the most valuable insights."
     ;;
   review)
     SYSTEM_PROMPT="You are a senior code reviewer. Review the code changes provided for bugs, security vulnerabilities, performance concerns, code quality, and adherence to conventions. Structure your response with these exact sections:
@@ -165,7 +236,9 @@ Nice-to-have improvements — style, readability, minor refactors. Same format. 
 ## Confidence
 State HIGH, MEDIUM, or LOW confidence in this review, with a one-sentence justification (e.g. 'MEDIUM — I lack full context on the authentication module').
 
-Be thorough but fair. Every section is required."
+Be thorough but fair. Every section is required.
+
+IMPORTANT: Your response is limited to ${MAX_TOKENS} tokens. Be concise and prioritize the most valuable insights."
     ;;
   ad-hoc)
     SYSTEM_PROMPT="You are a senior software engineer providing expert consultation. Analyze the question or problem provided and give a thorough, well-reasoned response. Structure your response with these exact sections:
@@ -182,12 +255,24 @@ Other approaches you considered and why you prefer your recommendation.
 ## Confidence
 State HIGH, MEDIUM, or LOW confidence in this response, with a one-sentence justification.
 
-Be specific. Every section is required."
+Be specific. Every section is required.
+
+IMPORTANT: Your response is limited to ${MAX_TOKENS} tokens. Be concise and prioritize the most valuable insights."
     ;;
   *)
-    SYSTEM_PROMPT="You are a senior software engineer. Begin with a 2-3 sentence summary, then provide detailed analysis. Be specific and include code examples where helpful."
+    SYSTEM_PROMPT="You are a senior software engineer. Begin with a 2-3 sentence summary, then provide detailed analysis. Be specific and include code examples where helpful.
+
+IMPORTANT: Your response is limited to ${MAX_TOKENS} tokens. Be concise and prioritize the most valuable insights."
     ;;
 esac
+
+# ── Pre-flight cost estimation ────────────────────────────────────
+_PROMPT_CHARS=$(wc -c < "$PROMPT_FILE" | tr -d ' ')
+_SYSTEM_CHARS=${#SYSTEM_PROMPT}
+_EST_PROMPT_TOKENS=$(( (_PROMPT_CHARS + _SYSTEM_CHARS) / 4 ))
+IFS=',' read -ra _EST_MODELS <<< "$MODELS_RAW"
+_NUM_MODELS=${#_EST_MODELS[@]}
+echo "Estimated: ~${_EST_PROMPT_TOKENS} prompt tokens x ${_NUM_MODELS} models | Max completion: ${MAX_TOKENS} tokens/model" >&2
 
 # ── API call function with retries ─────────────────────────────────
 call_model() {
@@ -367,7 +452,8 @@ for MODEL in "${MODELS[@]}"; do
     # Save to cache on success
     if [[ "$RESULT" == "OK" && "$NO_CACHE" != "true" ]]; then
       KEY=$(cache_key "$MODEL")
-      cp "$OUTPUT_FILE" "$CACHE_DIR/$KEY.md"
+      cp "$OUTPUT_FILE" "$CACHE_DIR/.$KEY.tmp"
+      mv "$CACHE_DIR/.$KEY.tmp" "$CACHE_DIR/$KEY.md"
     fi
   ) &
   PIDS+=($!)
@@ -397,6 +483,7 @@ for MODEL in "${MODEL_LIST[@]}"; do
     # Prepend a note about fallback
     if [[ -f "$OUTPUT_FILE" ]]; then
       TEMP_FILE=$(mktemp)
+      _MOE_TEMP_FILES+=("$TEMP_FILE")
       {
         echo "> **Note**: Original model \`$MODEL\` failed. This response is from fallback \`$FALLBACK_MODEL\`."
         echo ""
@@ -425,6 +512,7 @@ for MODEL in "${MODEL_LIST[@]}"; do
   if [[ -n "$COST" && "$COST" != "null" ]]; then
     # Insert cost into response file after Attempts line
     TEMP_FILE=$(mktemp)
+    _MOE_TEMP_FILES+=("$TEMP_FILE")
     awk -v cost="$COST" '/^\*\*Attempts\*\*:/{print; print "**Cost**: $" cost; next}1' "$RESPONSE_FILE" > "$TEMP_FILE"
     mv "$TEMP_FILE" "$RESPONSE_FILE"
 
@@ -433,7 +521,8 @@ for MODEL in "${MODEL_LIST[@]}"; do
       KEY=$(cache_key "$MODEL")
       CACHED="$CACHE_DIR/$KEY.md"
       if [[ -f "$CACHED" ]]; then
-        cp "$RESPONSE_FILE" "$CACHED"
+        cp "$RESPONSE_FILE" "$CACHE_DIR/.$KEY.tmp"
+        mv "$CACHE_DIR/.$KEY.tmp" "$CACHED"
       fi
     fi
 
@@ -484,6 +573,3 @@ if [[ "$TOTAL_COST" != "0" ]]; then
 else
   echo "SUMMARY: $SUCCESS_COUNT succeeded${CACHE_STR}, $FAIL_COUNT failed, ${#MODEL_LIST[@]} total"
 fi
-
-# Clean up temp files
-rm -f "$OUTPUT_DIR"/*.status "$OUTPUT_DIR"/*.gen-id

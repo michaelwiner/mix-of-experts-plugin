@@ -10,14 +10,20 @@ Instead of relying on a single model's perspective, Mix of Experts fans out prom
 
 - [Claude Code](https://claude.ai/claude-code) installed
 - An [OpenRouter](https://openrouter.ai/) API key (get one at https://openrouter.ai/keys)
-- `curl` and `jq` installed (`brew install curl jq` on macOS)
+- `curl`, `jq`, and `bc` installed (`brew install curl jq` on macOS; `bc` is pre-installed on most systems)
 - Bash 4+ (macOS ships with an older version; `brew install bash` if needed)
 
 ## Installation
 
 ```bash
-claude plugin add /path/to/mix_of_experts_plugin
+# Step 1: Register the plugin as a local marketplace
+claude plugin marketplace add /path/to/mix_of_experts_plugin
+
+# Step 2: Install the plugin
+claude plugin install mix-of-experts
 ```
+
+Restart Claude Code after installation for the plugin to take effect.
 
 ## Setup
 
@@ -131,3 +137,13 @@ Check the error details in each response, then:
 1. Verify your API key and network connectivity
 2. Verify model IDs in your settings file
 3. Wait and retry (may be temporary rate limiting)
+
+## Automatic Validation
+
+The plugin includes a SessionStart hook that checks your setup each time Claude Code starts:
+
+- Required dependencies (`curl`, `jq`, `bc`) are installed
+- A settings file exists (project-level or global)
+- The settings file has valid YAML frontmatter with an `openrouter_api_key`
+
+If issues are found, a warning appears at session start. This check never blocks Claude from starting.

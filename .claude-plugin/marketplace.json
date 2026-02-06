@@ -2,7 +2,10 @@
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "mix-of-experts",
   "version": "0.1.0",
-  "description": "Multi-model consultation workflow for feature development using OpenRouter",
+  "description": "Consults multiple AI models (GPT, Gemini, Deepseek) as expert advisors during feature development, synthesizing diverse perspectives into actionable architecture and code review reports.",
+  "metadata": {
+    "description": "A Claude Code plugin marketplace providing multi-model AI consultation tools for feature development workflows using OpenRouter."
+  },
   "owner": {
     "name": "Michael Winer"
   },
