@@ -85,7 +85,7 @@ All settings go in the YAML frontmatter of your `.claude/mix-of-experts-plugin.l
 | `openrouter_api_key` | Yes | -- | Your OpenRouter API key (starts with `sk-or-`) |
 | `models` | No | `openai/gpt-5.2,google/gemini-3-flash-preview,deepseek/deepseek-v3.2-20251201` | Comma-separated OpenRouter model IDs |
 | `fallback_models` | No | -- | Comma-separated fallback models used when primary models fail after all retries |
-| `max_tokens` | No | `4096` | Maximum tokens per model response |
+| `max_tokens` | No | `8192` | Maximum tokens per model response |
 | `temperature` | No | `0.3` | Sampling temperature (0.0--2.0). Lower = more deterministic |
 | `timeout` | No | `300` | Max seconds to wait per API call |
 | `retries` | No | `2` | Retry attempts on failure (429, 5xx, network errors) |
