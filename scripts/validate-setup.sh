@@ -31,7 +31,9 @@ elif [[ -f "$HOME/.claude/mix-of-experts-plugin.local.md" ]]; then
 fi
 
 if [[ -z "$SETTINGS_FILE" ]]; then
-  WARNINGS+=("No MoE settings file found. Create .claude/mix-of-experts-plugin.local.md with your OpenRouter API key.")
+  if [[ -z "${OPENROUTER_API_KEY:-}" ]]; then
+    WARNINGS+=("No API key found. Set OPENROUTER_API_KEY env var or create .claude/mix-of-experts-plugin.local.md with your key.")
+  fi
 else
   # Validate YAML frontmatter
   FRONTMATTER=$(sed -n '/^---$/,/^---$/p' "$SETTINGS_FILE" 2>/dev/null | sed '1d;$d')
@@ -39,10 +41,13 @@ else
   if [[ -z "$FRONTMATTER" ]]; then
     WARNINGS+=("Settings file found but has no YAML frontmatter (missing --- delimiters).")
   else
-    # Check for API key
-    API_KEY=$(echo "$FRONTMATTER" | grep '^openrouter_api_key:' | sed 's/^openrouter_api_key: *//' | tr -d '"' | tr -d "'")
+    # Check for API key: env var takes priority, then settings file
+    API_KEY="${OPENROUTER_API_KEY:-}"
     if [[ -z "$API_KEY" ]]; then
-      WARNINGS+=("Settings file has no openrouter_api_key field.")
+      API_KEY=$(echo "$FRONTMATTER" | grep '^openrouter_api_key:' | sed 's/^openrouter_api_key: *//' | tr -d '"' | tr -d "'")
+    fi
+    if [[ -z "$API_KEY" ]]; then
+      WARNINGS+=("No API key found. Set OPENROUTER_API_KEY env var or add openrouter_api_key to settings file.")
     elif [[ ! "$API_KEY" =~ ^sk-or- ]]; then
       WARNINGS+=("API key does not start with 'sk-or-' — it may be invalid.")
     fi

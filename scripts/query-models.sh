@@ -39,30 +39,28 @@ if [[ -z "$SETTINGS_FILE" || -z "$PHASE" || -z "$PROMPT_FILE" ]]; then
   exit 1
 fi
 
-if [[ ! -f "$SETTINGS_FILE" ]]; then
-  echo "ERROR: Settings file not found: $SETTINGS_FILE" >&2
-  echo "Create it with your OpenRouter API key. See the plugin README for format." >&2
-  exit 1
-fi
-
 if [[ ! -f "$PROMPT_FILE" ]]; then
   echo "ERROR: Prompt file not found: $PROMPT_FILE" >&2
   exit 1
 fi
 
-# ── Parse settings from YAML frontmatter ───────────────────────────
-FRONTMATTER=$(sed -n '/^---$/,/^---$/p' "$SETTINGS_FILE" | sed '1d;$d')
-
-if [[ -z "$FRONTMATTER" ]]; then
-  echo "ERROR: No YAML frontmatter found in settings file." >&2
-  echo "The file must start and end with --- delimiters." >&2
+# ── Parse settings from YAML frontmatter (optional if env var is set) ──
+FRONTMATTER=""
+if [[ -f "$SETTINGS_FILE" ]]; then
+  FRONTMATTER=$(sed -n '/^---$/,/^---$/p' "$SETTINGS_FILE" | sed '1d;$d')
+elif [[ -z "${OPENROUTER_API_KEY:-}" ]]; then
+  echo "ERROR: Settings file not found: $SETTINGS_FILE" >&2
+  echo "Create it or set the OPENROUTER_API_KEY env var. See the plugin README." >&2
   exit 1
 fi
 
-# Extract API key
-API_KEY=$(echo "$FRONTMATTER" | grep '^openrouter_api_key:' | sed 's/^openrouter_api_key: *//' | tr -d '"' | tr -d "'")
+# Extract API key: env var takes priority, then settings file
+API_KEY="${OPENROUTER_API_KEY:-}"
+if [[ -z "$API_KEY" && -n "$FRONTMATTER" ]]; then
+  API_KEY=$(echo "$FRONTMATTER" | grep '^openrouter_api_key:' | sed 's/^openrouter_api_key: *//' | tr -d '"' | tr -d "'")
+fi
 if [[ -z "$API_KEY" ]]; then
-  echo "ERROR: openrouter_api_key not found in settings file" >&2
+  echo "ERROR: No API key found. Set OPENROUTER_API_KEY env var or add openrouter_api_key to settings file." >&2
   exit 1
 fi
 
@@ -72,25 +70,31 @@ if [[ ! "$API_KEY" =~ ^sk-or- ]]; then
 fi
 
 # Extract models list (comma-separated in settings)
-MODELS_RAW=$(echo "$FRONTMATTER" | grep '^models:' | sed 's/^models: *//' || true)
+MODELS_RAW=""
+if [[ -n "$FRONTMATTER" ]]; then
+  MODELS_RAW=$(echo "$FRONTMATTER" | grep '^models:' | sed 's/^models: *//' || true)
+fi
 if [[ -z "$MODELS_RAW" ]]; then
   MODELS_RAW="openai/gpt-5.2,google/gemini-3-flash-preview,deepseek/deepseek-v3.2-20251201"
 fi
 
-# Extract optional fields (|| true prevents set -e from killing on no match)
-MAX_TOKENS=$(echo "$FRONTMATTER" | grep '^max_tokens:' | sed 's/^max_tokens: *//' || true)
+# Extract optional fields (use defaults if no frontmatter or field missing)
+MAX_TOKENS=""
+TEMPERATURE=""
+TIMEOUT=""
+MAX_RETRIES=""
+FALLBACKS_RAW=""
+if [[ -n "$FRONTMATTER" ]]; then
+  MAX_TOKENS=$(echo "$FRONTMATTER" | grep '^max_tokens:' | sed 's/^max_tokens: *//' || true)
+  TEMPERATURE=$(echo "$FRONTMATTER" | grep '^temperature:' | sed 's/^temperature: *//' || true)
+  TIMEOUT=$(echo "$FRONTMATTER" | grep '^timeout:' | sed 's/^timeout: *//' || true)
+  MAX_RETRIES=$(echo "$FRONTMATTER" | grep '^retries:' | sed 's/^retries: *//' || true)
+  FALLBACKS_RAW=$(echo "$FRONTMATTER" | grep '^fallback_models:' | sed 's/^fallback_models: *//' || true)
+fi
 [[ -z "$MAX_TOKENS" ]] && MAX_TOKENS=8192
-
-TEMPERATURE=$(echo "$FRONTMATTER" | grep '^temperature:' | sed 's/^temperature: *//' || true)
 [[ -z "$TEMPERATURE" ]] && TEMPERATURE=0.3
-
-TIMEOUT=$(echo "$FRONTMATTER" | grep '^timeout:' | sed 's/^timeout: *//' || true)
 [[ -z "$TIMEOUT" ]] && TIMEOUT=300
-
-MAX_RETRIES=$(echo "$FRONTMATTER" | grep '^retries:' | sed 's/^retries: *//' || true)
 [[ -z "$MAX_RETRIES" ]] && MAX_RETRIES=2
-
-FALLBACKS_RAW=$(echo "$FRONTMATTER" | grep '^fallback_models:' | sed 's/^fallback_models: *//' || true)
 
 # ── Validate settings ─────────────────────────────────────────────
 validate_positive_int() {
@@ -175,9 +179,11 @@ OUTPUT_DIR=$(mktemp -d)
 _MOE_TEMP_FILES=()
 
 _moe_cleanup() {
-  for f in "${_MOE_TEMP_FILES[@]}"; do
-    rm -f "$f" 2>/dev/null
-  done
+  if [[ ${#_MOE_TEMP_FILES[@]} -gt 0 ]]; then
+    for f in "${_MOE_TEMP_FILES[@]}"; do
+      rm -f "$f" 2>/dev/null
+    done
+  fi
   rm -f "$OUTPUT_DIR"/*.status "$OUTPUT_DIR"/*.gen-id 2>/dev/null
 }
 

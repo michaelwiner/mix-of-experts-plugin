@@ -27,19 +27,25 @@ Restart Claude Code after installation for the plugin to take effect.
 
 ## Setup
 
-Create a settings file at `.claude/mix-of-experts-plugin.local.md` in your project root:
+Set your OpenRouter API key as an environment variable (recommended):
+
+```bash
+export OPENROUTER_API_KEY=sk-or-v1-your-key-here
+```
+
+Add this to your shell profile (`~/.zshrc`, `~/.bashrc`, etc.) to persist it.
+
+Optionally, create a settings file at `.claude/mix-of-experts-plugin.local.md` in your project root to customize models and other options:
 
 ```markdown
 ---
-openrouter_api_key: sk-or-v1-your-key-here
+models: openai/gpt-5.2,google/gemini-3-flash-preview,deepseek/deepseek-v3.2-20251201
 ---
 ```
 
-This minimal config uses the default models (GPT-5.2, Gemini 3 Flash Preview, Deepseek V3.2). See [Configuration Reference](#configuration-reference) below for all options.
+See [Configuration Reference](#configuration-reference) below for all options. For a global config that applies to all projects, place the file at `~/.claude/mix-of-experts-plugin.local.md` instead. Project-level settings take precedence.
 
-For a global config that applies to all projects, place the file at `~/.claude/mix-of-experts-plugin.local.md` instead. Project-level settings take precedence.
-
-> **Note**: The `.claude/*.local.md` pattern is gitignored by default, so your API key stays out of version control.
+> **Note**: The `OPENROUTER_API_KEY` env var is the safest way to provide your key — it never touches any file that could be committed. The settings file still supports `openrouter_api_key` as a fallback, but the env var always takes priority.
 
 ## Usage
 
