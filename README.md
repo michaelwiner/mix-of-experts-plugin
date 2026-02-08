@@ -17,10 +17,10 @@ Instead of relying on a single model's perspective, Mix of Experts fans out prom
 
 ```bash
 # Step 1: Register the plugin marketplace
-claude plugin marketplace add michaelwiner/mix-of-experts-plugin
+claude plugin marketplace add https://github.com/michaelwiner/mix-of-experts-plugin.git
 
 # Step 2: Install the plugin
-claude plugin install mix-of-experts
+claude plugin install mix-of-experts@michaelwiner-mix-of-experts-plugin
 ```
 
 Restart Claude Code after installation for the plugin to take effect.
