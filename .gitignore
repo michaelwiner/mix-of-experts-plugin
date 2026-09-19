@@ -1,2 +1,3 @@
 .claude/*.local.md
 .DS_Store
+.cursor/*.local.md

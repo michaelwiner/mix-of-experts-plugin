@@ -1,5 +1,5 @@
 #!/bin/bash
-# query-models.sh - Fan out a prompt to multiple AI models via OpenRouter
+# query-models.sh - Fan out a prompt to multiple AI models via OpenRouter or Azure AI Foundry
 # Usage: bash query-models.sh --settings-file <path> --phase <phase> --prompt-file <path> [--no-cache]
 
 set -euo pipefail
@@ -33,68 +33,105 @@ done
 if [[ -z "$SETTINGS_FILE" || -z "$PHASE" || -z "$PROMPT_FILE" ]]; then
   echo "Usage: bash query-models.sh --settings-file <path> --phase <phase> --prompt-file <path> [--no-cache]" >&2
   echo "  --settings-file  Path to .local.md settings file with YAML frontmatter" >&2
-  echo "  --phase          Consultation phase: architecture, review, or ad-hoc" >&2
+  echo "  --phase          Consultation phase: architecture, review, clarify, or ad-hoc" >&2
   echo "  --prompt-file    Path to file containing the prompt to send" >&2
   echo "  --no-cache       Skip cache, force fresh API calls" >&2
   exit 1
 fi
+
+case "$PHASE" in
+  architecture|review|clarify|ad-hoc) ;;
+  *)
+    echo "ERROR: Invalid phase '$PHASE'. Expected one of: architecture, review, clarify, ad-hoc" >&2
+    exit 1
+    ;;
+esac
 
 if [[ ! -f "$PROMPT_FILE" ]]; then
   echo "ERROR: Prompt file not found: $PROMPT_FILE" >&2
   exit 1
 fi
 
-# ── Parse settings from YAML frontmatter (optional if env var is set) ──
+# ── Parse settings from YAML frontmatter ───────────────────────────
+# AZURE_OPENAI_KEY is accepted as an alias because Azure's own docs and SDKs use both names.
+AZURE_ENV_KEY="${AZURE_OPENAI_API_KEY:-${AZURE_OPENAI_KEY:-}}"
+
+# The file is optional only when a provider key is in the env; everything else has defaults
+# (except Azure models, which is checked below once the provider is known).
 FRONTMATTER=""
 if [[ -f "$SETTINGS_FILE" ]]; then
   FRONTMATTER=$(sed -n '/^---$/,/^---$/p' "$SETTINGS_FILE" | sed '1d;$d')
-elif [[ -z "${OPENROUTER_API_KEY:-}" ]]; then
+elif [[ -z "${OPENROUTER_API_KEY:-}" && -z "$AZURE_ENV_KEY" ]]; then
   echo "ERROR: Settings file not found: $SETTINGS_FILE" >&2
-  echo "Create it or set the OPENROUTER_API_KEY env var. See the plugin README." >&2
+  echo "Create it, or set OPENROUTER_API_KEY (or AZURE_OPENAI_API_KEY for azure-foundry). See the plugin README." >&2
   exit 1
 fi
 
-# Extract API key: env var takes priority, then settings file
-API_KEY="${OPENROUTER_API_KEY:-}"
-if [[ -z "$API_KEY" && -n "$FRONTMATTER" ]]; then
-  API_KEY=$(echo "$FRONTMATTER" | grep '^openrouter_api_key:' | sed 's/^openrouter_api_key: *//' | tr -d '"' | tr -d "'")
-fi
-if [[ -z "$API_KEY" ]]; then
-  echo "ERROR: No API key found. Set OPENROUTER_API_KEY env var or add openrouter_api_key to settings file." >&2
-  exit 1
-fi
+get_setting() {
+  [[ -n "$FRONTMATTER" ]] || return 0
+  echo "$FRONTMATTER" | grep "^$1:" | head -1 | sed "s/^$1: *//" | tr -d '"' | tr -d "'" || true
+}
 
-# Validate API key format
-if [[ ! "$API_KEY" =~ ^sk-or- ]]; then
-  echo "WARNING: API key does not start with 'sk-or-'. It may be invalid." >&2
-fi
+PROVIDER=$(get_setting provider)
+[[ -z "$PROVIDER" ]] && PROVIDER="openrouter"
+
+case "$PROVIDER" in
+  openrouter)
+    API_KEY="${OPENROUTER_API_KEY:-}"
+    [[ -z "$API_KEY" ]] && API_KEY=$(get_setting openrouter_api_key)
+    if [[ -z "$API_KEY" ]]; then
+      echo "ERROR: No API key found. Set OPENROUTER_API_KEY env var or add openrouter_api_key to settings file." >&2
+      if [[ -n "$AZURE_ENV_KEY" ]]; then
+        echo "  An Azure key is set: azure-foundry needs a settings file with 'provider: azure-foundry' and 'models:'." >&2
+      fi
+      exit 1
+    fi
+    if [[ ! "$API_KEY" =~ ^sk-or- ]]; then
+      echo "WARNING: API key does not start with 'sk-or-'. It may be invalid." >&2
+    fi
+    ;;
+  azure-foundry)
+    API_KEY="$AZURE_ENV_KEY"
+    [[ -z "$API_KEY" ]] && API_KEY=$(get_setting azure_api_key)
+    if [[ -z "$API_KEY" ]]; then
+      echo "ERROR: No Azure key found. Set AZURE_OPENAI_API_KEY (or AZURE_OPENAI_KEY) or add azure_api_key to settings file." >&2
+      exit 1
+    fi
+    AZURE_ENDPOINT="${AZURE_OPENAI_ENDPOINT:-}"
+    [[ -z "$AZURE_ENDPOINT" ]] && AZURE_ENDPOINT=$(get_setting azure_endpoint)
+    AZURE_ENDPOINT="${AZURE_ENDPOINT%/}"
+    if [[ -z "$AZURE_ENDPOINT" ]]; then
+      echo "ERROR: No Azure endpoint found. Set AZURE_OPENAI_ENDPOINT or add azure_endpoint to settings file." >&2
+      exit 1
+    fi
+    ;;
+  *)
+    echo "ERROR: Unknown provider '$PROVIDER'. Expected: openrouter or azure-foundry" >&2
+    exit 1
+    ;;
+esac
 
 # Extract models list (comma-separated in settings)
-MODELS_RAW=""
-if [[ -n "$FRONTMATTER" ]]; then
-  MODELS_RAW=$(echo "$FRONTMATTER" | grep '^models:' | sed 's/^models: *//' || true)
-fi
+MODELS_RAW=$(get_setting models)
 if [[ -z "$MODELS_RAW" ]]; then
+  if [[ "$PROVIDER" == "azure-foundry" ]]; then
+    # Foundry model names are deployment names chosen per resource; there is no sane default.
+    echo "ERROR: provider azure-foundry requires 'models:' (comma-separated Foundry deployment names) in the settings file." >&2
+    exit 1
+  fi
   MODELS_RAW="openai/gpt-5.2,google/gemini-3-flash-preview,deepseek/deepseek-v3.2-20251201"
 fi
 
 # Extract optional fields (use defaults if no frontmatter or field missing)
-MAX_TOKENS=""
-TEMPERATURE=""
-TIMEOUT=""
-MAX_RETRIES=""
-FALLBACKS_RAW=""
-if [[ -n "$FRONTMATTER" ]]; then
-  MAX_TOKENS=$(echo "$FRONTMATTER" | grep '^max_tokens:' | sed 's/^max_tokens: *//' || true)
-  TEMPERATURE=$(echo "$FRONTMATTER" | grep '^temperature:' | sed 's/^temperature: *//' || true)
-  TIMEOUT=$(echo "$FRONTMATTER" | grep '^timeout:' | sed 's/^timeout: *//' || true)
-  MAX_RETRIES=$(echo "$FRONTMATTER" | grep '^retries:' | sed 's/^retries: *//' || true)
-  FALLBACKS_RAW=$(echo "$FRONTMATTER" | grep '^fallback_models:' | sed 's/^fallback_models: *//' || true)
-fi
-[[ -z "$MAX_TOKENS" ]] && MAX_TOKENS=8192
+MAX_TOKENS=$(get_setting max_tokens)
+TEMPERATURE=$(get_setting temperature)
+TIMEOUT=$(get_setting timeout)
+MAX_RETRIES=$(get_setting retries)
+FALLBACKS_RAW=$(get_setting fallback_models)
+[[ -z "$MAX_TOKENS" ]] && MAX_TOKENS=8000
 [[ -z "$TEMPERATURE" ]] && TEMPERATURE=0.3
 [[ -z "$TIMEOUT" ]] && TIMEOUT=300
-[[ -z "$MAX_RETRIES" ]] && MAX_RETRIES=2
+[[ -z "$MAX_RETRIES" ]] && MAX_RETRIES=1
 
 # ── Validate settings ─────────────────────────────────────────────
 validate_positive_int() {
@@ -128,7 +165,12 @@ validate_temperature() {
 validate_model_name() {
   local MODEL
   MODEL=$(echo "$1" | tr -d ' ')
-  if ! [[ "$MODEL" =~ ^[a-zA-Z0-9_-]+/[a-zA-Z0-9._-]+$ ]]; then
+  if [[ "$PROVIDER" == "azure-foundry" ]]; then
+    if ! [[ "$MODEL" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+      echo "ERROR: Invalid Azure deployment name: '$MODEL'. Expected letters, digits, '.', '_' or '-'" >&2
+      exit 1
+    fi
+  elif ! [[ "$MODEL" =~ ^[a-zA-Z0-9_-]+/[a-zA-Z0-9._-]+$ ]]; then
     echo "ERROR: Invalid model name: '$MODEL'. Expected format: provider/model-name" >&2
     exit 1
   fi
@@ -168,8 +210,10 @@ PROMPT_HASH=$(shasum -a 256 "$PROMPT_FILE" 2>/dev/null | cut -d' ' -f1 || md5 -q
 
 cache_key() {
   local MODEL="$1"
-  echo -n "${PHASE}|${MODEL}|${TEMPERATURE}|${MAX_TOKENS}|${PROMPT_HASH}" | shasum -a 256 2>/dev/null | cut -d' ' -f1 || \
-    echo -n "${PHASE}|${MODEL}|${TEMPERATURE}|${MAX_TOKENS}|${PROMPT_HASH}" | md5 2>/dev/null
+  # PROVIDER is part of the key: the same model name on two providers is not the same model.
+  # SYSTEM_HASH is too, so editing a phase's required sections never serves stale-format answers.
+  echo -n "${PROVIDER}|${PHASE}|${MODEL}|${TEMPERATURE}|${MAX_TOKENS}|${PROMPT_HASH}|${SYSTEM_HASH}" | shasum -a 256 2>/dev/null | cut -d' ' -f1 || \
+    echo -n "${PROVIDER}|${PHASE}|${MODEL}|${TEMPERATURE}|${MAX_TOKENS}|${PROMPT_HASH}|${SYSTEM_HASH}" | md5 2>/dev/null
 }
 
 # ── Create output directory ────────────────────────────────────────
@@ -218,7 +262,7 @@ File structure, key components, data flow, and concrete implementation guidance.
 What could go wrong with this approach. What you are trading away. Be honest about weaknesses.
 
 ## Confidence
-State HIGH, MEDIUM, or LOW confidence in this proposal, with a one-sentence justification.
+State HIGH, MEDIUM, or LOW confidence in this proposal, with a one-sentence justification. Then name the single piece of missing information that would most change this proposal, or write 'Nothing material.'.
 
 Be specific and opinionated. Every section is required.
 
@@ -246,6 +290,25 @@ Be thorough but fair. Every section is required.
 
 IMPORTANT: Your response is limited to ${MAX_TOKENS} tokens. Be concise and prioritize the most valuable insights."
     ;;
+  clarify)
+    SYSTEM_PROMPT="You are a senior software architect in the clarification round that precedes an architecture proposal. Read the prompt package and tell the operator (the lead engineer who wrote it) what you need before you could propose a sound architecture for the explicit ask: decisions only they can make, and evidence they can fetch. Do NOT propose an architecture in this phase. Structure your response with these exact sections:
+
+## Summary
+A 2-3 sentence restatement of the ask and the main uncertainty you see.
+
+## Clarifying Questions
+Decisions or facts only the operator or user can supply (intent, priorities, constraints). A numbered list of up to 3 questions (at most 5, only if every one is essential). Each must be answerable in a few lines and must change your design depending on the answer; add one sentence on why it matters. If nothing needs clarifying, this section must be exactly: None
+
+## Context Requests
+Evidence the operator can gather that would most sharpen your conclusion: specific files, schemas, interfaces, logs, metrics, dependency versions, prior attempts. A numbered list of up to 3, most valuable first, each formatted as: **what to include** — how it would change your recommendation — where to find it (path, command, or owner) if you can tell. Do not request what the package already contains. If the package is sufficient, this section must be exactly: None
+
+## Confidence
+State HIGH, MEDIUM, or LOW confidence that, with these questions answered and this context provided, you could propose a sound architecture, with a one-sentence justification.
+
+Every section is required.
+
+IMPORTANT: Your response is limited to ${MAX_TOKENS} tokens. Be concise."
+    ;;
   ad-hoc)
     SYSTEM_PROMPT="You are a senior software engineer providing expert consultation. Analyze the question or problem provided and give a thorough, well-reasoned response. Structure your response with these exact sections:
 
@@ -259,18 +322,24 @@ Detailed reasoning, evidence, and code examples supporting your answer.
 Other approaches you considered and why you prefer your recommendation.
 
 ## Confidence
-State HIGH, MEDIUM, or LOW confidence in this response, with a one-sentence justification.
+State HIGH, MEDIUM, or LOW confidence in this response, with a one-sentence justification. Then name the single piece of missing information that would most change this answer, or write 'Nothing material.'.
 
 Be specific. Every section is required.
 
 IMPORTANT: Your response is limited to ${MAX_TOKENS} tokens. Be concise and prioritize the most valuable insights."
     ;;
-  *)
-    SYSTEM_PROMPT="You are a senior software engineer. Begin with a 2-3 sentence summary, then provide detailed analysis. Be specific and include code examples where helpful.
-
-IMPORTANT: Your response is limited to ${MAX_TOKENS} tokens. Be concise and prioritize the most valuable insights."
-    ;;
 esac
+
+SYSTEM_HASH=$(printf '%s' "$SYSTEM_PROMPT" | shasum -a 256 2>/dev/null | cut -d' ' -f1 || echo "nohash")
+
+# Appended on retries: the usual failure is an empty or truncated answer, and restating the
+# contract measurably reduces the chance the second attempt fails the same way.
+RETRY_ADDENDUM="RETRY INSTRUCTIONS (prior attempt failed, was empty, or incomplete):
+- This is attempt __ATTEMPT__. Produce a complete response now.
+- Emit every required ## section for this phase with real content (no placeholders).
+- No preamble, apologies, or meta commentary about retries.
+- If uncertain, still answer and mark Confidence LOW with a one-sentence reason.
+- Prefer concrete, opinionated claims over hedges. Stay within the token budget."
 
 # ── Pre-flight cost estimation ────────────────────────────────────
 _PROMPT_CHARS=$(wc -c < "$PROMPT_FILE" | tr -d ' ')
@@ -286,58 +355,91 @@ call_model() {
   local OUTPUT_FILE="$2"
   local ATTEMPT=0
   local SUCCESS=false
-
-  # Build JSON payload
-  PAYLOAD=$(jq -n \
-    --arg model "$MODEL" \
-    --arg system "$SYSTEM_PROMPT" \
-    --arg prompt "$PROMPT" \
-    --argjson max_tokens "$MAX_TOKENS" \
-    --argjson temperature "$TEMPERATURE" \
-    '{
-      model: $model,
-      messages: [
-        { role: "system", content: $system },
-        { role: "user", content: $prompt }
-      ],
-      max_tokens: $max_tokens,
-      temperature: $temperature
-    }')
+  local CURL_FAILED=false
 
   while [[ $ATTEMPT -le $MAX_RETRIES && "$SUCCESS" == "false" ]]; do
     if [[ $ATTEMPT -gt 0 ]]; then
-      # Exponential backoff: 2s, 4s
+      # Exponential backoff: 2s, 4s, ...
       local WAIT=$((2 ** ATTEMPT))
       echo "  Retry $ATTEMPT/$MAX_RETRIES for $MODEL (waiting ${WAIT}s)..." >&2
       sleep "$WAIT"
     fi
 
-    # Call OpenRouter API
-    RESPONSE=$(curl -s -w "\n%{http_code}" \
-      --max-time "$TIMEOUT" \
-      --connect-timeout 10 \
-      "https://openrouter.ai/api/v1/chat/completions" \
-      -H "Content-Type: application/json" \
-      -H "Authorization: Bearer $API_KEY" \
-      -H "HTTP-Referer: https://github.com/mix-of-experts-plugin" \
-      -H "X-Title: Mix of Experts Plugin" \
-      -d "$PAYLOAD" 2>/dev/null) || {
-        # curl itself failed (network error, DNS, etc.)
-        ATTEMPT=$((ATTEMPT + 1))
-        if [[ $ATTEMPT -le $MAX_RETRIES ]]; then
-          continue
-        fi
-        {
-          echo "# ERROR from $MODEL"
-          echo ""
-          echo "**Status**: NETWORK_ERROR"
-          echo "**Attempts**: $((ATTEMPT))"
-          echo ""
-          echo "curl failed — check network connectivity or DNS resolution."
-        } > "$OUTPUT_FILE"
-        echo "FAILED"
-        return
-      }
+    local EFFECTIVE_SYSTEM="$SYSTEM_PROMPT"
+    if [[ $ATTEMPT -ge 1 ]]; then
+      EFFECTIVE_SYSTEM="$SYSTEM_PROMPT
+
+${RETRY_ADDENDUM//__ATTEMPT__/$((ATTEMPT + 1))}"
+    fi
+
+    if [[ "$PROVIDER" == "azure-foundry" ]]; then
+      # Foundry wants max_completion_tokens, and GPT-5.x deployments reject any temperature
+      # other than the default, so it is omitted rather than sent.
+      PAYLOAD=$(jq -n \
+        --arg model "$MODEL" \
+        --arg system "$EFFECTIVE_SYSTEM" \
+        --arg prompt "$PROMPT" \
+        --argjson max_tokens "$MAX_TOKENS" \
+        '{
+          model: $model,
+          messages: [
+            { role: "system", content: $system },
+            { role: "user", content: $prompt }
+          ],
+          max_completion_tokens: $max_tokens
+        }')
+      RESPONSE=$(curl -s -w "\n%{http_code}" \
+        --max-time "$TIMEOUT" \
+        --connect-timeout 10 \
+        "$AZURE_ENDPOINT/openai/v1/chat/completions" \
+        -H "Content-Type: application/json" \
+        -H "api-key: $API_KEY" \
+        -d "$PAYLOAD" 2>/dev/null) || CURL_FAILED=true
+    else
+      PAYLOAD=$(jq -n \
+        --arg model "$MODEL" \
+        --arg system "$EFFECTIVE_SYSTEM" \
+        --arg prompt "$PROMPT" \
+        --argjson max_tokens "$MAX_TOKENS" \
+        --argjson temperature "$TEMPERATURE" \
+        '{
+          model: $model,
+          messages: [
+            { role: "system", content: $system },
+            { role: "user", content: $prompt }
+          ],
+          max_tokens: $max_tokens,
+          temperature: $temperature
+        }')
+      RESPONSE=$(curl -s -w "\n%{http_code}" \
+        --max-time "$TIMEOUT" \
+        --connect-timeout 10 \
+        "https://openrouter.ai/api/v1/chat/completions" \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer $API_KEY" \
+        -H "HTTP-Referer: https://github.com/mix-of-experts-plugin" \
+        -H "X-Title: Mix of Experts Plugin" \
+        -d "$PAYLOAD" 2>/dev/null) || CURL_FAILED=true
+    fi
+
+    if [[ "$CURL_FAILED" == "true" ]]; then
+      CURL_FAILED=false
+      # curl itself failed (network error, DNS, etc.)
+      ATTEMPT=$((ATTEMPT + 1))
+      if [[ $ATTEMPT -le $MAX_RETRIES ]]; then
+        continue
+      fi
+      {
+        echo "# ERROR from $MODEL"
+        echo ""
+        echo "**Status**: NETWORK_ERROR"
+        echo "**Attempts**: $((ATTEMPT))"
+        echo ""
+        echo "curl failed — check network connectivity or DNS resolution."
+      } > "$OUTPUT_FILE"
+      echo "FAILED"
+      return
+    fi
 
     # Split response body and status code
     HTTP_CODE=$(echo "$RESPONSE" | tail -1)
@@ -375,6 +477,7 @@ call_model() {
       {
         echo "# Response from $MODEL"
         echo ""
+        echo "**Provider**: $PROVIDER"
         echo "**Tokens**: prompt=$USAGE_PROMPT, completion=$USAGE_COMPLETION"
         echo "**Attempts**: $((ATTEMPT + 1))"
         echo ""
@@ -383,8 +486,8 @@ call_model() {
         echo "$CONTENT"
       } > "$OUTPUT_FILE"
 
-      # Save generation ID for cost lookup
-      if [[ -n "$GEN_ID" ]]; then
+      # Save generation ID for cost lookup (OpenRouter only; Foundry has no generation endpoint)
+      if [[ -n "$GEN_ID" && "$PROVIDER" == "openrouter" ]]; then
         echo "$GEN_ID" > "${OUTPUT_FILE%.md}.gen-id"
       fi
 
@@ -514,7 +617,8 @@ for MODEL in "${MODEL_LIST[@]}"; do
     "https://openrouter.ai/api/v1/generation?id=$GEN_ID" \
     -H "Authorization: Bearer $API_KEY" 2>/dev/null) || continue
 
-  COST=$(echo "$COST_RESPONSE" | jq -r '.data.total_cost // empty' 2>/dev/null)
+  # Cost is best-effort: a non-JSON reply must not abort the run before SUMMARY is printed.
+  COST=$(echo "$COST_RESPONSE" | jq -r '.data.total_cost // empty' 2>/dev/null || true)
   if [[ -n "$COST" && "$COST" != "null" ]]; then
     # Insert cost into response file after Attempts line
     TEMP_FILE=$(mktemp)

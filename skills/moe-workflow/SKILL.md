@@ -1,16 +1,33 @@
 ---
 name: MoE Feature Development Workflow
-description: This skill should be used when the user asks to "build a feature with multiple models", "use mix of experts", "get opinions from different AI models", "moe workflow", "feature dev with expert consultation", invokes the "/moe" command, or wants to leverage multiple LLM providers (GPT, Gemini, Deepseek) for architecture design or code review during feature development.
+description: This skill should be used when the user asks to "build a feature with multiple models", "use mix of experts", "get opinions from different AI models", "moe workflow", "feature dev with expert consultation", invokes the "/moe" command, or wants to leverage multiple LLM providers (GPT, Gemini, Deepseek, Grok via OpenRouter or Azure AI Foundry) for architecture design or code review during feature development.
 version: 0.1.0
 ---
 
 # Mix of Experts Feature Development
 
-A structured feature development workflow where Opus acts as the lead architect, consulting external AI models (via OpenRouter) at high-value decision points. The workflow follows a phased approach: understand the codebase, clarify requirements, gather diverse architectural opinions from multiple models, implement, and review with multi-model feedback.
+A structured feature development workflow where Claude acts as the lead architect (the **director**), consulting external AI models (via OpenRouter or Azure AI Foundry) at high-value decision points. The workflow follows a phased approach: understand the codebase, clarify requirements with the user and then with the experts, gather diverse architectural opinions from multiple models, implement, and review with multi-model feedback.
+
+Experts have no repository access. Everything they know comes from the **prompt package** the director writes (`references/prompt-package.md`).
 
 ## Prerequisites
 
-Before starting, read the user's MoE settings file at `.claude/mix-of-experts-plugin.local.md` in the project root (or `~/.claude/mix-of-experts-plugin.local.md` for global config). This file contains the OpenRouter API key and model configuration. If the file does not exist, ask the user to create one. See `references/settings-template.md` for the required format.
+Locate the settings file. Use the first one that exists and pass it as `--settings-file` (the scripts do not search on their own):
+
+1. `<project>/.cursor/mix-of-experts.local.md`
+2. `~/.cursor/mix-of-experts.local.md`
+3. `<project>/.claude/mix-of-experts-plugin.local.md`
+4. `~/.claude/mix-of-experts-plugin.local.md`
+
+The file selects the `provider` (`openrouter`, the default, or `azure-foundry`) and the `models`. Keys come from the environment: `OPENROUTER_API_KEY`, or `AZURE_OPENAI_API_KEY` (alias `AZURE_OPENAI_KEY`) plus `AZURE_OPENAI_ENDPOINT`. With OpenRouter and the env key set, the file is optional. If nothing is configured, ask the user to set it up per `references/settings-template.md`. Never write keys into a settings file or a prompt package.
+
+Script paths used below:
+
+```bash
+QUERY_BG="${CLAUDE_PLUGIN_ROOT}/scripts/query-models-bg.sh"
+QUERY="${CLAUDE_PLUGIN_ROOT}/scripts/query-models.sh"
+STATUS="${CLAUDE_PLUGIN_ROOT}/scripts/moe-status.sh"
+```
 
 ## Workflow Phases
 
@@ -37,7 +54,7 @@ Before starting, read the user's MoE settings file at `.claude/mix-of-experts-pl
 3. Read all key files identified by agents
 4. Present comprehensive summary of findings
 
-### Phase 3: Clarifying Questions
+### Phase 3: Clarifying Questions (user, then experts)
 
 **Goal**: Resolve all ambiguities before designing.
 
@@ -45,8 +62,13 @@ Before starting, read the user's MoE settings file at `.claude/mix-of-experts-pl
 
 1. Review codebase findings and the original feature request
 2. Identify underspecified aspects: edge cases, error handling, integration points, scope, design preferences, performance needs
-3. Present all questions in a clear, organized list
-4. Wait for answers before proceeding
+3. Present your own questions to the user in a clear, organized list and wait for answers
+4. Build the prompt package per `references/prompt-package.md`: all nine sections, section 8 is the explicit ask, section 4 is exactly `Pending — clarify round in progress.` Write it to a file
+5. Run the expert clarify round (see **Running a consultation** below) with `--phase clarify`
+6. Act as director, following `references/clarify-qa.md`. Experts return both **Clarifying Questions** (decisions) and **Context Requests** (evidence that would sharpen their answer, with where to find it):
+   - Answer questions in 10 lines or fewer each; escalate to the user only what you cannot answer from evidence (in one batch)
+   - Fetch the requested evidence you can get and add concise excerpts to sections 5–6; record anything unavailable, never invent it
+7. Fill section 4 with the attributed Q&A and context log, or `No clarifying questions or context requests from any expert.` if every expert answered `None` to both. Do not reword section 8
 
 ### Phase 4: Architecture Design (MoE Consultation)
 
@@ -54,42 +76,28 @@ Before starting, read the user's MoE settings file at `.claude/mix-of-experts-pl
 
 This is the primary MoE consultation point. Each external model brings a different perspective and problem-solving approach.
 
-1. Prepare a context package containing:
-   - Feature description and requirements
-   - Relevant codebase patterns discovered in Phase 2
-   - User's answers from Phase 3
-   - Key file contents (summarized if large)
+**Hard gate**: do not run this phase while section 4 of the package still says `Pending`, and do not reword section 8. The architecture package is the clarify package with section 4 filled and requested evidence added to sections 5–6.
 
-2. Call the query script to fan out to all configured models:
-   ```bash
-   bash ${CLAUDE_PLUGIN_ROOT}/scripts/query-models.sh \
-     --settings-file ".claude/mix-of-experts-plugin.local.md" \
-     --phase "architecture" \
-     --prompt-file "/path/to/prompt.md"
-   ```
+1. Run the consultation with `--phase architecture` and the same package file
 
-   Before calling the script, write the prompt to a temporary file. The prompt should ask each model to propose an architecture with:
-   - Implementation approach and rationale
-   - File structure and key components
-   - Trade-offs and risks
-   - Estimated complexity
-
-3. Read each model's response from the output files. For each response, check:
+2. Read each model's response from `RESPONSES_DIR`. For each response, check:
    - If the file starts with `# ERROR` — record as a failed model
    - If the response is missing expected `## Summary` or `## Key Claims` sections — flag as unstructured
 
-4. Count successful responses and apply the appropriate presentation:
+3. Count successful responses and apply the appropriate presentation:
    - **3/3 or 2/3 succeed**: Follow the **Architecture Synthesis Template** from `references/synthesis-templates.md`
    - **1/3 succeeds**: Present the single response directly with a reduced-confidence caveat (see edge cases in the templates file)
    - **0/3 succeed**: Report all failures, suggest troubleshooting steps
 
-5. When using the Architecture Synthesis Template:
+4. When using the Architecture Synthesis Template:
    - Build the Consensus & Disagreements table by comparing each model's **Key Claims** section
    - Mark unstructured responses with a footnote (extract information by meaning)
    - Mark failed models as "N/A" in table columns
+   - Note which clarify answers and added context shaped the proposals
+   - List the missing information the experts named at the end of `## Confidence`, most-cited first, so the user knows what would firm up the decision
 
-6. Present the completed synthesis report to the user
-7. Ask the user which approach to pursue before proceeding to implementation
+5. Present the completed synthesis report to the user
+6. Ask the user which approach to pursue before proceeding to implementation
 
 ### Phase 5: Implementation
 
@@ -109,19 +117,13 @@ This is the primary MoE consultation point. Each external model brings a differe
 This is the second MoE consultation point.
 
 1. Gather all modified/created files
-2. Prepare a review prompt containing:
+2. Prepare a review package (same nine sections; section 5 carries the diffs or full files, section 8 asks for a review against the success criteria) containing:
    - Original requirements
    - Chosen architecture rationale
    - All code changes (diffs or full files)
    - Specific review focus areas
 
-3. Call the query script:
-   ```bash
-   bash ${CLAUDE_PLUGIN_ROOT}/scripts/query-models.sh \
-     --settings-file ".claude/mix-of-experts-plugin.local.md" \
-     --phase "review" \
-     --prompt-file "/path/to/review-prompt.md"
-   ```
+3. Run the consultation with `--phase review`
 
 4. Read each model's review from the output files. For each response, check:
    - If the file starts with `# ERROR` — record as a failed model
@@ -155,20 +157,40 @@ This is the second MoE consultation point.
 
 ## Ad-Hoc MoE Consultation
 
-Outside of Phases 4 and 6, consult external models when:
+Outside of Phases 3, 4 and 6, consult external models when:
 - Facing a genuinely difficult technical decision with no clear answer
 - The user explicitly requests multi-model input
 - Encountering an unfamiliar domain where diverse perspectives would help
 
-To consult, use the same query script with `--phase "ad-hoc"`.
+Use `--phase "ad-hoc"` with a full prompt package.
+
+## Running a consultation
+
+Prefer the background runner: a fan-out takes minutes, and a detached job survives an interrupted turn.
+
+```bash
+bash "$QUERY_BG" \
+  --settings-file "<settings file from Prerequisites>" \
+  --phase "clarify" \
+  --prompt-file "/path/to/package.md"
+# prints RUN_ID, RUN_DIR, PID
+
+bash "$STATUS" --run-id "<RUN_ID>"   # exit 0 = done, 2 = running, 1 = failed
+```
+
+Poll while the status exits 2. On 0, read every `RESPONSES_DIR/*.md`. On 1, read `FAIL_REASON` and `RUN_DIR/stdout.log`; a run whose process died without a summary is marked `orphaned`.
+
+The foreground script (`bash "$QUERY" ...`, same flags) blocks until every model answers and prints `OUTPUT_DIR`; use it only for quick checks, and never interrupt it.
 
 ## Script Reference
 
-The query script at `${CLAUDE_PLUGIN_ROOT}/scripts/query-models.sh` handles:
-- Reading settings (API key, models) from the settings file
-- Sending prompts to all configured models via OpenRouter in parallel
-- Writing each model's response to separate output files
-- Returning the paths to output files
+`query-models.sh` handles:
+- Reading settings (provider, models, limits) from the settings file and keys from the env
+- Sending the package to all configured models in parallel, with per-phase system prompts
+- Retrying empty responses, 429s, 5xx and network errors with a retry addendum
+- Writing each model's response to a separate file and printing a `SUMMARY:` line
+
+`query-models-bg.sh` wraps it as a detached job under `~/.cache/moe-plugin/runs/<RUN_ID>/`, and `moe-status.sh` reports on it.
 
 See `references/query-script-usage.md` for detailed script documentation.
 
@@ -179,7 +201,7 @@ The settings file uses YAML frontmatter in a `.local.md` file. See `references/s
 ## Tips for Effective MoE Consultation
 
 - **Be specific in prompts**: Vague questions get vague answers. Include concrete code context.
-- **Summarize codebase context**: External models lack project knowledge. Provide enough context to reason about the architecture.
+- **Summarize codebase context**: External models lack project knowledge. Section 5 of the package must give them enough to reason about the architecture.
 - **Weight multi-model agreement**: When multiple models independently suggest the same approach, it is a strong signal.
 - **Value unique perspectives**: A single model catching a security issue or suggesting an elegant pattern is worth attention even if others missed it.
 - **Keep prompts focused**: One clear question per consultation yields better results than broad requests.
