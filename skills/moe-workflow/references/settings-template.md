@@ -80,11 +80,38 @@ Any markdown content below the frontmatter is ignored by the script.
 | `models` | Azure: yes | OpenRouter: `openai/gpt-5.2,google/gemini-3-flash-preview,deepseek/deepseek-v3.2-20251201` | Comma-separated. OpenRouter IDs (`provider/model`) or Foundry deployment names |
 | `azure_endpoint` | Azure: yes, unless `AZURE_OPENAI_ENDPOINT` is set | - | Foundry resource URL; a trailing `/` is stripped |
 | `openrouter_api_key` / `azure_api_key` | No | - | Fallbacks for the env vars; prefer the env |
+| `models_<phase>` | No | - | Overrides `models` for one round, e.g. `models_clarify:` with cheaper models. Phases: `clarify`, `architecture`, `review`, `ad-hoc` |
 | `fallback_models` | No | - | Same format as `models`; used when a primary model fails after all retries |
+| `styles` | No | `ship,scale,simplify` | Professional lens per expert, assigned by model position and rotating. Values: `ship`, `scale`, `simplify`, `neutral`, or `off` |
+| `max_cost_usd` | No | `1` | Pre-run estimate above this blocks the run (exit 3) until re-run with `--confirm-cost`. OpenRouter only |
 | `max_tokens` | No | `8000` | Maximum completion tokens per model |
 | `temperature` | No | `0.3` | 0.0 – 2.0. Ignored (not sent) for `azure-foundry` |
 | `timeout` | No | `300` | Max seconds per API call |
 | `retries` | No | `1` | Retries on empty response, 429, 5xx and network errors (so 2 attempts by default) |
+
+## Dev styles
+
+Three experts given identical instructions tend to converge on the same answer. By default
+each expert gets one professional lens, in model order:
+
+| Style | Lens |
+|---|---|
+| `ship` | Pragmatic startup engineer: simplest design that ships safely now; flags over-engineering |
+| `scale` | Staff/SRE engineer: failure modes, concurrency, data integrity, observability, 10x load |
+| `simplify` | Principal maintainer: clear boundaries, few moving parts, readability, long-term cost |
+| `neutral` | No lens |
+
+The lens is an emphasis: every expert still returns every required section. `styles: off`
+disables it. The style is recorded in each response header (`**Style**:`).
+
+## Cheaper clarify rounds
+
+```markdown
+---
+models: openai/gpt-5.2,google/gemini-3-pro-preview,deepseek/deepseek-v3.2-20251201
+models_clarify: google/gemini-3-flash-preview,deepseek/deepseek-v3.2-20251201,openai/gpt-5-mini
+---
+```
 
 ## Finding model IDs
 

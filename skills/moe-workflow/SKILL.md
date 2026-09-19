@@ -21,6 +21,12 @@ Locate the settings file. Use the first one that exists and pass it as `--settin
 
 The file selects the `provider` (`openrouter`, the default, or `azure-foundry`) and the `models`. Keys come from the environment: `OPENROUTER_API_KEY`, or `AZURE_OPENAI_API_KEY` (alias `AZURE_OPENAI_KEY`) plus `AZURE_OPENAI_ENDPOINT`. With OpenRouter and the env key set, the file is optional. If nothing is configured, ask the user to set it up per `references/settings-template.md`. Never write keys into a settings file or a prompt package.
 
+At the start of every workflow, run the setup check yourself (the SessionStart hook does not fire reliably for every install type) and fix anything it reports before consulting:
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/validate-setup.sh" < /dev/null
+```
+
 Script paths used below:
 
 ```bash
@@ -179,6 +185,12 @@ bash "$STATUS" --run-id "<RUN_ID>"   # exit 0 = done, 2 = running, 1 = failed
 ```
 
 Poll while the status exits 2. On 0, read every `RESPONSES_DIR/*.md`. On 1, read `FAIL_REASON` and `RUN_DIR/stdout.log`; a run whose process died without a summary is marked `orphaned`.
+
+**Cost gate.** If the launch exits **3** (`COST_GATE: estimated $X exceeds max_cost_usd ...`), nothing ran. Tell the user the estimate and ask; re-run with `--confirm-cost` only if they agree. After every run, report the `Cost:` from the `SUMMARY` line.
+
+**Truncated answers.** A response marked `**Status**: TRUNCATED` was cut off even after a retry with double the tokens. Use what it contains, but treat its missing sections as absent and say so in the synthesis.
+
+**Dev styles.** Each expert answers through one professional lens (`**Style**:` in its header: `ship`, `scale`, or `simplify`). Use this in the synthesis: a risk raised only by `scale` is an ops risk, not a disagreement about the design.
 
 The foreground script (`bash "$QUERY" ...`, same flags) blocks until every model answers and prints `OUTPUT_DIR`; use it only for quick checks, and never interrupt it.
 

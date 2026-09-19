@@ -1,6 +1,8 @@
 #!/bin/bash
 # validate-setup.sh - Pre-flight validation for Mix of Experts plugin
-# Called by SessionStart hook. Always exits 0 to never block Claude from starting.
+# Called by the SessionStart hook, and by the skills at the start of a workflow (the hook does
+# not fire reliably for every install type). Always exits 0 to never block anything.
+# Manual use: bash validate-setup.sh < /dev/null
 
 ERRORS=()
 WARNINGS=()
@@ -14,7 +16,7 @@ done
 
 # ── Determine working directory from hook input ──────────────────
 CWD="$(pwd)"
-if command -v jq &>/dev/null; then
+if command -v jq &>/dev/null && [[ ! -t 0 ]]; then
   HOOK_INPUT=$(cat 2>/dev/null || true)
   if [[ -n "$HOOK_INPUT" ]]; then
     PARSED_CWD=$(echo "$HOOK_INPUT" | jq -r '.cwd // empty' 2>/dev/null)
@@ -75,7 +77,9 @@ case "$PROVIDER" in
     ENDPOINT="${AZURE_OPENAI_ENDPOINT:-}"
     [[ -z "$ENDPOINT" ]] && ENDPOINT=$(get_setting azure_endpoint)
     [[ -z "$ENDPOINT" ]] && WARNINGS+=("azure-foundry: no endpoint. Set AZURE_OPENAI_ENDPOINT or azure_endpoint in $SETTINGS_FILE.")
-    [[ -z "$(get_setting models)" ]] && WARNINGS+=("azure-foundry: 'models:' (Foundry deployment names) is required in $SETTINGS_FILE.")
+    if [[ -z "$(get_setting models)" ]] && ! echo "$FRONTMATTER" | grep -q '^models_[a-z-]*:'; then
+      WARNINGS+=("azure-foundry: 'models:' (Foundry deployment names) is required in $SETTINGS_FILE.")
+    fi
     ;;
   *)
     WARNINGS+=("Unknown provider '$PROVIDER' in $SETTINGS_FILE. Expected: openrouter or azure-foundry.")

@@ -130,9 +130,10 @@ When a consultation round runs:
 
 1. The director writes the prompt package to a file (experts see nothing else)
 2. `query-models-bg.sh` starts a detached job, so an interrupted agent turn does not kill it; `moe-status.sh` reports done / running / failed
-3. `query-models.sh` sends the package to all configured models **in parallel**, retrying empty responses, rate limits and server errors
-4. Each model responds with the structured sections its phase requires
-5. The director reads all responses and synthesizes them, highlighting:
+3. `query-models.sh` estimates the cost (and stops for confirmation above `max_cost_usd`), then sends the package to all configured models **in parallel**, each through its own professional lens, retrying empty responses, rate limits and server errors, and re-asking with double the tokens when an answer is cut off
+4. The `SUMMARY` line reports successes, truncations, cache hits and the actual cost
+5. Each model responds with the structured sections its phase requires
+6. The director reads all responses and synthesizes them, highlighting:
    - **Consensus**: where models independently agree (strong signal)
    - **Disagreements**: where models differ, with analysis of which argument is stronger
    - **Unique insights**: ideas from a single model worth considering
@@ -150,7 +151,10 @@ All settings go in the YAML frontmatter of the settings file.
 | `models` | Azure: yes | `openai/gpt-5.2,google/gemini-3-flash-preview,deepseek/deepseek-v3.2-20251201` | Comma-separated OpenRouter IDs, or Foundry deployment names |
 | `azure_endpoint` | Azure, if `AZURE_OPENAI_ENDPOINT` unset | -- | Foundry resource URL |
 | `openrouter_api_key` / `azure_api_key` | No | -- | Fallbacks for the env vars (prefer the env) |
+| `models_<phase>` | No | -- | Per-round override of `models`, e.g. `models_clarify:` with cheaper models |
 | `fallback_models` | No | -- | Comma-separated fallback models used when primary models fail after all retries |
+| `styles` | No | `ship,scale,simplify` | One professional lens per expert (startup pragmatist, staff/SRE, principal maintainer); `off` to disable |
+| `max_cost_usd` | No | `1` | Runs estimated above this stop (exit 3) until confirmed with `--confirm-cost` (OpenRouter) |
 | `max_tokens` | No | `8000` | Maximum completion tokens per model (`max_completion_tokens` on Azure) |
 | `temperature` | No | `0.3` | Sampling temperature (0.0--2.0). Not sent to Azure (GPT-5.x deployments reject it) |
 | `timeout` | No | `300` | Max seconds to wait per API call |
@@ -221,4 +225,4 @@ The Claude Code plugin includes a SessionStart hook (`scripts/validate-setup.sh`
 - A settings file is found (same search order as above) or an env key is set
 - The selected provider has what it needs: an `sk-or-` key for OpenRouter; a key, an endpoint and `models:` for Azure AI Foundry
 
-If issues are found, a warning appears at session start. This check never blocks Claude from starting.
+If issues are found, a warning appears at session start. This check never blocks Claude from starting. Because SessionStart hooks do not fire reliably for every install type, both skills also run it at the start of each workflow.

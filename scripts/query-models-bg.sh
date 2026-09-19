@@ -1,7 +1,8 @@
 #!/bin/bash
 # query-models-bg.sh - Run query-models.sh as a detached background job and return immediately.
 # Usage: bash query-models-bg.sh --settings-file <path> --phase <phase> --prompt-file <path>
-#                                [--no-cache] [--run-id <id>]
+#                                [--no-cache] [--confirm-cost] [--run-id <id>]
+# Exit: 0 = launched, 1 = error, 3 = estimated cost above max_cost_usd (ask, then --confirm-cost)
 # Poll with: bash moe-status.sh --run-id <id>   (or --latest)
 #
 # Why detached: a fan-out takes minutes, and agent hosts (Cursor in particular) kill the
@@ -21,6 +22,7 @@ SETTINGS_FILE=""
 PHASE=""
 PROMPT_FILE=""
 NO_CACHE=false
+CONFIRM_COST=false
 RUN_ID=""
 
 while [[ $# -gt 0 ]]; do
@@ -29,13 +31,14 @@ while [[ $# -gt 0 ]]; do
     --phase) PHASE="$2"; shift 2 ;;
     --prompt-file) PROMPT_FILE="$2"; shift 2 ;;
     --no-cache) NO_CACHE=true; shift ;;
+    --confirm-cost) CONFIRM_COST=true; shift ;;
     --run-id) RUN_ID="$2"; shift 2 ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
 done
 
 if [[ -z "$SETTINGS_FILE" || -z "$PHASE" || -z "$PROMPT_FILE" ]]; then
-  echo "Usage: bash query-models-bg.sh --settings-file <path> --phase <phase> --prompt-file <path> [--no-cache] [--run-id <id>]" >&2
+  echo "Usage: bash query-models-bg.sh --settings-file <path> --phase <phase> --prompt-file <path> [--no-cache] [--confirm-cost] [--run-id <id>]" >&2
   exit 1
 fi
 
@@ -43,6 +46,19 @@ if [[ ! -f "$PROMPT_FILE" ]]; then
   echo "ERROR: Prompt file not found: $PROMPT_FILE" >&2
   exit 1
 fi
+
+# Settings and cost are checked synchronously: the caller must see a bad setting or the cost
+# gate now, not discover it later as a failed background run.
+PREFLIGHT_ARGS=(--settings-file "$SETTINGS_FILE" --phase "$PHASE" --prompt-file "$PROMPT_FILE" --estimate-only)
+[[ "$NO_CACHE" == "true" ]] && PREFLIGHT_ARGS+=(--no-cache)
+[[ "$CONFIRM_COST" == "true" ]] && PREFLIGHT_ARGS+=(--confirm-cost)
+PREFLIGHT_RC=0
+PREFLIGHT_OUT=$(bash "$SCRIPT_DIR/query-models.sh" "${PREFLIGHT_ARGS[@]}" 2>&1) || PREFLIGHT_RC=$?
+if [[ $PREFLIGHT_RC -ne 0 ]]; then
+  echo "$PREFLIGHT_OUT" >&2
+  exit "$PREFLIGHT_RC"
+fi
+echo "$PREFLIGHT_OUT" | grep -E '^Estimated max cost' || true
 
 [[ -z "$RUN_ID" ]] && RUN_ID="$(date +%Y%m%d-%H%M%S)-${PHASE}-$$"
 if ! [[ "$RUN_ID" =~ ^[a-zA-Z0-9_-][a-zA-Z0-9._-]*$ ]]; then
@@ -72,6 +88,8 @@ echo "running" > "$RUN_DIR/status"
 
 QUERY_ARGS=(--settings-file "$SETTINGS_FILE" --phase "$PHASE" --prompt-file "$RUN_DIR/prompt.md")
 [[ "$NO_CACHE" == "true" ]] && QUERY_ARGS+=(--no-cache)
+# The preflight already applied the gate; the detached run must not stop on it again.
+QUERY_ARGS+=(--confirm-cost)
 
 {
   echo '#!/bin/bash'

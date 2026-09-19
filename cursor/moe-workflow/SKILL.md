@@ -45,6 +45,7 @@ into a settings file or a prompt package. Details: `references/settings-template
 
 ## Workflow
 
+0. **Check setup:** `bash "$MOE_SKILL_DIR/scripts/validate-setup.sh" < /dev/null`; fix what it reports.
 1. **Understand.** Read the relevant code; ask the user only what the code cannot tell you.
 2. **Build the prompt package** (`references/prompt-package.md`): all nine sections, section 8
    is the big ask, section 4 is `Pending — clarify round in progress.` Write it to a file.
@@ -83,6 +84,13 @@ Poll every 20–30 s while it returns 2. On 0, read every `RESPONSES_DIR/*.md`. 
 without a summary is reported as `orphaned`.
 
 Use `bash "$QUERY" ...` (foreground) only for quick checks. Never interrupt a foreground run.
+
+- **Exit 3 / `COST_GATE`:** nothing ran. Ask the user about the estimate; re-run with
+  `--confirm-cost` only if they agree. Always report `Cost:` from the `SUMMARY` line.
+- **`**Status**: TRUNCATED`:** cut off even after a doubled-token retry. Use it, but say which
+  sections are missing.
+- **`**Style**:`** (`ship` / `scale` / `simplify`): each expert's professional lens. A point
+  raised only through one lens is a perspective, not necessarily a disagreement.
 
 ## Reading responses
 

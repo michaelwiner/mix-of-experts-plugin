@@ -17,7 +17,7 @@ bash query-models.sh \
   --settings-file <path> \
   --phase <architecture|review|clarify|ad-hoc> \
   --prompt-file <path> \
-  [--no-cache]
+  [--no-cache] [--confirm-cost] [--estimate-only]
 ```
 
 | Argument | Required | Description |
@@ -26,6 +26,10 @@ bash query-models.sh \
 | `--phase` | Yes | `architecture`, `review`, `clarify`, or `ad-hoc`. Anything else exits 1 |
 | `--prompt-file` | Yes | The prompt package (see `prompt-package.md`) |
 | `--no-cache` | No | Skip the response cache and force fresh API calls |
+| `--confirm-cost` | No | Run even if the cost estimate is above `max_cost_usd` (only after the user agreed) |
+| `--estimate-only` | No | Print the cost estimate and gate result, call no models |
+
+Exit codes: `0` ran (read `SUMMARY`), `1` error, `3` cost gate (see below).
 
 ### Phases
 
@@ -45,7 +49,30 @@ Each phase sets a system prompt that requires specific `##` sections:
 | Token limit field | `max_tokens` | `max_completion_tokens` |
 | `temperature` | Sent | Omitted (GPT-5.x deployments reject it) |
 | Model names | `provider/model` | Deployment names (`[A-Za-z0-9._-]+`), `models:` required |
-| Cost lookup | Yes, via `/api/v1/generation` | No |
+| Cost | Inline `usage.cost`, plus pre-run estimate and gate | Not available |
+
+### Dev styles
+
+Each expert's system prompt starts with one professional lens from `styles:` (default
+`ship,scale,simplify`, assigned by model position). See `settings-template.md`.
+
+### Cost
+
+- **Before the run (OpenRouter):** the script prices one full-length (`max_tokens`) answer per
+  uncached model from OpenRouter's public model list and prints `Estimated max cost: $X`.
+  If that is above `max_cost_usd` (default `$1`), it prints
+  `COST_GATE: estimated $X exceeds max_cost_usd $Y ...` and exits **3** without calling any
+  model. Ask the user; re-run with `--confirm-cost` only if they agree.
+- **After the run:** the real cost comes from each response's `usage.cost`, including paid
+  retries, and appears per model (`**Cost**:`) and in `SUMMARY: ... | Cost: $X`.
+- Azure Foundry publishes no per-call price, so it has no estimate, gate, or cost line.
+
+### Truncation
+
+A response that stops because it hit the token cap (`finish_reason: length`) is retried once
+with `max_tokens` doubled. If it is still cut off it is kept, labelled
+`**Status**: TRUNCATED` in its header and `TRUNC` in the output, counted in the summary
+(`N truncated`), and never cached. Treat its missing trailing sections as absent, not empty.
 
 ### Retries
 
@@ -58,8 +85,8 @@ truncated answer.
 ### Output
 
 1. `OUTPUT_DIR=/path/to/temp/dir` — directory containing the response files
-2. `MODEL_RESPONSES:` — each file with status `OK`, `FAIL`, `CACHE` or `MISS`
-3. `SUMMARY: N succeeded[ (C cached)], F failed, T total[ | Cost: $X]`
+2. `MODEL_RESPONSES:` — each file with status `OK`, `TRUNC`, `CACHE`, `FAIL` or `MISS`
+3. `SUMMARY: N succeeded[ (T truncated, C cached)], F failed, M total[ | Cost: $X]`
 
 Response files are named after the model with `/` replaced by `_`
 (`openai_gpt-5.2.md`, `grok-4.6-expert.md`).
@@ -69,6 +96,7 @@ Successful response:
 # Response from openai/gpt-5.2
 
 **Provider**: openrouter
+**Style**: ship
 **Tokens**: prompt=1234, completion=567
 **Attempts**: 1
 **Cost**: $0.0012
@@ -92,13 +120,18 @@ Rate limit exceeded
 
 ### Caching
 
-Responses are cached in `~/.cache/moe-plugin/` keyed by provider, phase, model, temperature,
-max_tokens, and hashes of the prompt file and the phase's system prompt. Cache hits show as `CACHE`. Use `--no-cache` to
+Responses are cached in `~/.cache/moe-plugin/` keyed by provider, phase, model, style, temperature,
+max_tokens, and hashes of the prompt file and the phase's system prompt. Truncated answers are
+never cached. Cache hits show as `CACHE`. Use `--no-cache` to
 bypass; `rm -rf ~/.cache/moe-plugin/*.md` clears it (leaving background runs alone).
 
 ## query-models-bg.sh
 
-Same flags as `query-models.sh`, plus `--run-id <id>` (default: timestamp, phase, and PID). Requires `python3`.
+Same flags as `query-models.sh` (except `--estimate-only`), plus `--run-id <id>` (default: timestamp, phase, and PID). Requires `python3`.
+
+Before detaching it runs a synchronous preflight (`--estimate-only`): bad settings exit 1 and
+the cost gate exits 3 immediately, with the same messages, so nothing is launched that would
+only fail later.
 
 ```bash
 bash query-models-bg.sh --settings-file "$S" --phase clarify --prompt-file "$PKG"
