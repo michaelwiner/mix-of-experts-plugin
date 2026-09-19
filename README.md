@@ -154,6 +154,9 @@ All settings go in the YAML frontmatter of the settings file.
 | `models_<phase>` | No | -- | Per-round override of `models`, e.g. `models_clarify:` with cheaper models |
 | `fallback_models` | No | -- | Comma-separated fallback models used when primary models fail after all retries |
 | `styles` | No | `ship,scale,simplify` | One professional lens per expert (startup pragmatist, staff/SRE, principal maintainer); `off` to disable |
+| `web_search` | No | `off` | `on`, `off`, or phases (e.g. `architecture,review`): experts can search the web and cite sources (OpenRouter only) |
+| `web_search_max` | No | `3` | Max searches per expert per call, enforced by OpenRouter |
+| `web_search_engine` | No | `exa` | `exa` (flat ~$0.007/search, reliable counts), `auto`, `native`, `parallel`, `perplexity` |
 | `max_cost_usd` | No | `1` | Runs estimated above this stop (exit 3) until confirmed with `--confirm-cost` (OpenRouter) |
 | `max_tokens` | No | `8000` | Maximum completion tokens per model (`max_completion_tokens` on Azure) |
 | `temperature` | No | `0.3` | Sampling temperature (0.0--2.0). Not sent to Azure (GPT-5.x deployments reject it) |

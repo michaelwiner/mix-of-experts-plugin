@@ -77,6 +77,10 @@ case "$PROVIDER" in
     ENDPOINT="${AZURE_OPENAI_ENDPOINT:-}"
     [[ -z "$ENDPOINT" ]] && ENDPOINT=$(get_setting azure_endpoint)
     [[ -z "$ENDPOINT" ]] && WARNINGS+=("azure-foundry: no endpoint. Set AZURE_OPENAI_ENDPOINT or azure_endpoint in $SETTINGS_FILE.")
+    WEB_SETTING=$(get_setting web_search | tr -d ' ')
+    if [[ -n "$WEB_SETTING" && "$WEB_SETTING" != "off" && "$WEB_SETTING" != "false" && "$WEB_SETTING" != "no" ]]; then
+      WARNINGS+=("azure-foundry: web_search is OpenRouter-only; experts will run without it (and flag stale facts as unverified).")
+    fi
     if [[ "$ENDPOINT" == */api/projects/* ]]; then
       WARNINGS+=("azure-foundry: $ENDPOINT is a project endpoint; API keys usually need the resource endpoint (https://<resource>.services.ai.azure.com).")
     fi
