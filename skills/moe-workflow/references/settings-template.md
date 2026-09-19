@@ -1,65 +1,124 @@
 # Settings Template
 
-## API Key (Required)
+## Where the file lives
 
-Set your OpenRouter API key as an environment variable (recommended):
+Agents pick the first file that exists and pass it as `--settings-file`. The scripts
+themselves never search.
+
+1. `<project>/.cursor/mix-of-experts.local.md`
+2. `~/.cursor/mix-of-experts.local.md`
+3. `<project>/.claude/mix-of-experts-plugin.local.md`
+4. `~/.claude/mix-of-experts-plugin.local.md`
+
+All four are `*.local.md` files: keep them out of git.
+
+## API keys (environment only)
+
+| Provider | Variables |
+|---|---|
+| `openrouter` (default) | `OPENROUTER_API_KEY` |
+| `azure-foundry` | `AZURE_OPENAI_API_KEY` (or its alias `AZURE_OPENAI_KEY`) and `AZURE_OPENAI_ENDPOINT` |
 
 ```bash
 export OPENROUTER_API_KEY=sk-or-v1-your-key-here
+# or
+export AZURE_OPENAI_API_KEY=your-foundry-key
+export AZURE_OPENAI_ENDPOINT=https://YOUR-RESOURCE.services.ai.azure.com
 ```
 
-This is the safest approach — the key never touches any file that could be committed to git.
+The settings file can also hold `openrouter_api_key` / `azure_api_key`, but the env var always
+wins and is the only way that cannot leak through a commit.
 
-## Settings File (Optional)
+A settings file is optional for OpenRouter when `OPENROUTER_API_KEY` is set (the default
+models are used). Azure always needs one, because `models:` has no default.
 
-Create at `.claude/mix-of-experts-plugin.local.md` in your project root (or `~/.claude/mix-of-experts-plugin.local.md` for global config).
-
-## Minimal Configuration
+## Azure AI Foundry
 
 ```markdown
 ---
-models: openai/gpt-5.2,google/gemini-3-flash-preview,deepseek/deepseek-v3.2-20251201
----
-```
-
-This uses the default models: GPT-5.2, Gemini 3 Flash Preview, Deepseek V3.2. The API key can also be set here as `openrouter_api_key` but the env var is preferred.
-
-## Full Configuration
-
-```markdown
----
-openrouter_api_key: sk-or-v1-your-key-here
-models: openai/gpt-5.2,google/gemini-3-flash-preview,deepseek/deepseek-v3.2-20251201
-fallback_models: meta-llama/llama-3.3-70b,mistralai/mistral-large
-max_tokens: 8192
+provider: azure-foundry
+azure_endpoint: https://YOUR-RESOURCE.services.ai.azure.com
+models: grok-4.6-expert,DeepSeek-V4-Pro-expert,gpt-5.6-sol
+max_tokens: 8000
 temperature: 0.3
 timeout: 300
-retries: 2
+retries: 1
+---
+```
+
+- `models` are **deployment names** from your Foundry resource, not OpenRouter IDs. Required.
+- Requests go to `{endpoint}/openai/v1/chat/completions` with an `api-key` header.
+- `max_tokens` is sent as `max_completion_tokens`. `temperature` is validated but **not sent**,
+  because GPT-5.x Foundry deployments reject non-default temperatures.
+- No per-call cost lookup (that endpoint is OpenRouter-only).
+
+## OpenRouter
+
+```markdown
+---
+provider: openrouter
+models: openai/gpt-5.2,google/gemini-3-flash-preview,deepseek/deepseek-v3.2-20251201
+fallback_models: meta-llama/llama-3.3-70b,mistralai/mistral-large
+max_tokens: 8000
+temperature: 0.3
+timeout: 300
+retries: 1
 ---
 
 ## Notes
 
 Any markdown content below the frontmatter is ignored by the script.
-Use this space for personal notes about model preferences or project-specific configuration.
 ```
+
+`provider: openrouter` may be omitted: it is the default.
 
 ## Available Fields
 
 | Field | Required | Default | Description |
 |-------|----------|---------|-------------|
-| `openrouter_api_key` | No | - | Your OpenRouter API key (env var `OPENROUTER_API_KEY` is preferred) |
-| `models` | No | `openai/gpt-5.2,google/gemini-3-flash-preview,deepseek/deepseek-v3.2-20251201` | Comma-separated list of OpenRouter model IDs |
-| `fallback_models` | No | - | Comma-separated fallback models used when primary models fail after all retries |
-| `max_tokens` | No | `8192` | Maximum tokens per model response |
-| `temperature` | No | `0.3` | Sampling temperature (0.0 - 2.0). Lower = more deterministic. |
-| `timeout` | No | `300` | Max seconds to wait per API call |
-| `retries` | No | `2` | Number of retry attempts on failure (429, 5xx, network errors) |
+| `provider` | No | `openrouter` | `openrouter` or `azure-foundry` |
+| `models` | Azure: yes | OpenRouter: `openai/gpt-5.2,google/gemini-3-flash-preview,deepseek/deepseek-v3.2-20251201` | Comma-separated. OpenRouter IDs (`provider/model`) or Foundry deployment names |
+| `azure_endpoint` | Azure: yes, unless `AZURE_OPENAI_ENDPOINT` is set | - | Foundry resource URL; a trailing `/` is stripped |
+| `openrouter_api_key` / `azure_api_key` | No | - | Fallbacks for the env vars; prefer the env |
+| `models_<phase>` | No | - | Overrides `models` for one round, e.g. `models_clarify:` with cheaper models. Phases: `clarify`, `architecture`, `review`, `ad-hoc` |
+| `fallback_models` | No | - | Same format as `models`; used when a primary model fails after all retries |
+| `styles` | No | `ship,scale,simplify` | Professional lens per expert, assigned by model position and rotating. Values: `ship`, `scale`, `simplify`, `neutral`, or `off` |
+| `max_cost_usd` | No | `1` | Pre-run estimate above this blocks the run (exit 3) until re-run with `--confirm-cost`. OpenRouter only |
+| `max_tokens` | No | `8000` | Maximum completion tokens per model |
+| `temperature` | No | `0.3` | 0.0 – 2.0. Ignored (not sent) for `azure-foundry` |
+| `timeout` | No | `300` | Max seconds per API call |
+| `retries` | No | `1` | Retries on empty response, 429, 5xx and network errors (so 2 attempts by default) |
 
-## Finding Model IDs
+## Dev styles
 
-Browse available models at https://openrouter.ai/models. The model ID is shown on each model's page (e.g., `openai/gpt-5.2`, `google/gemini-3-pro-preview`).
+Three experts given identical instructions tend to converge on the same answer. By default
+each expert gets one professional lens, in model order:
 
-## Example Model Combinations
+| Style | Lens |
+|---|---|
+| `ship` | Pragmatic startup engineer: simplest design that ships safely now; flags over-engineering |
+| `scale` | Staff/SRE engineer: failure modes, concurrency, data integrity, observability, 10x load |
+| `simplify` | Principal maintainer: clear boundaries, few moving parts, readability, long-term cost |
+| `neutral` | No lens |
+
+The lens is an emphasis: every expert still returns every required section. `styles: off`
+disables it. The style is recorded in each response header (`**Style**:`).
+
+## Cheaper clarify rounds
+
+```markdown
+---
+models: openai/gpt-5.2,google/gemini-3-pro-preview,deepseek/deepseek-v3.2-20251201
+models_clarify: google/gemini-3-flash-preview,deepseek/deepseek-v3.2-20251201,openai/gpt-5-mini
+---
+```
+
+## Finding model IDs
+
+- OpenRouter: https://openrouter.ai/models (e.g. `openai/gpt-5.2`, `google/gemini-3-pro-preview`)
+- Foundry: the **Deployments** page of your Azure AI Foundry project
+
+## Example OpenRouter combinations
 
 **Balanced (default)**:
 ```
