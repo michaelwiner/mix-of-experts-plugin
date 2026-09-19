@@ -77,7 +77,9 @@ with `max_tokens` doubled. If it is still cut off it is kept, labelled
 ### Retries
 
 Empty responses, HTTP 429, HTTP 5xx and network errors are retried up to `retries` times
-(default 1) with backoff `2^attempt` seconds. Other 4xx errors fail immediately. On every
+(default 1) with backoff `2^attempt` seconds, or the server's `Retry-After` (capped at 60s)
+when it sends one, as Azure does for per-minute token limits. Other 4xx errors fail
+immediately, as does `finish_reason: content_filter` (`**Status**: CONTENT_FILTERED`). On every
 retry the system prompt gets an addendum that restates the contract (every required section,
 no meta commentary, mark Confidence LOW if unsure), because the usual failure is an empty or
 truncated answer.
