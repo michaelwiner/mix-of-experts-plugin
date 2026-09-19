@@ -47,7 +47,13 @@ retries: 1
 ```
 
 - `models` are **deployment names** from your Foundry resource, not OpenRouter IDs. Required.
-- Requests go to `{endpoint}/openai/v1/chat/completions` with an `api-key` header.
+- Requests go to `{endpoint}/openai/v1/chat/completions` with an `api-key` header. Use the
+  **resource** endpoint (`https://<resource>.services.ai.azure.com` or
+  `https://<resource>.openai.azure.com`); a pasted `/openai/v1` suffix is stripped. Project
+  endpoints (`.../api/projects/<name>`) are documented for Entra ID tokens and usually reject
+  API keys, so the scripts warn about them.
+- Content-filtered answers (`finish_reason: content_filter`) fail immediately as
+  `CONTENT_FILTERED` and are not retried: the same prompt would be blocked again.
 - `max_tokens` is sent as `max_completion_tokens`. `temperature` is validated but **not sent**,
   because GPT-5.x Foundry deployments reject non-default temperatures.
 - No per-call cost lookup (that endpoint is OpenRouter-only).

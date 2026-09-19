@@ -107,7 +107,16 @@ case "$PROVIDER" in
     fi
     AZURE_ENDPOINT="${AZURE_OPENAI_ENDPOINT:-}"
     [[ -z "$AZURE_ENDPOINT" ]] && AZURE_ENDPOINT=$(get_setting azure_endpoint)
+    # Accept the endpoint as people usually paste it: with a trailing slash, or already ending
+    # in /openai/v1 (the SDK base_url form). Without this the route doubles and returns 404.
     AZURE_ENDPOINT="${AZURE_ENDPOINT%/}"
+    AZURE_ENDPOINT="${AZURE_ENDPOINT%/openai/v1}"
+    AZURE_ENDPOINT="${AZURE_ENDPOINT%/openai}"
+    if [[ "$AZURE_ENDPOINT" == */api/projects/* ]]; then
+      # Microsoft documents project endpoints with Entra ID tokens only; an API key there
+      # typically returns 401, so say so up front instead of leaving a bare HTTP error.
+      echo "WARNING: $AZURE_ENDPOINT is a Foundry project endpoint. API keys usually need the resource endpoint (https://<resource>.services.ai.azure.com) instead." >&2
+    fi
     if [[ -z "$AZURE_ENDPOINT" ]]; then
       echo "ERROR: No Azure endpoint found. Set AZURE_OPENAI_ENDPOINT or add azure_endpoint to settings file." >&2
       exit 1
@@ -473,6 +482,9 @@ call_model() {
   local TOKENS="$MAX_TOKENS"
   local EXPANDED=false
   local SPENT=0
+  local SERVER_WAIT=""
+  local HDR_FILE
+  HDR_FILE=$(mktemp)
   local BASE_SYSTEM="$SYSTEM_PROMPT"
   local STYLE_LINE
   STYLE_LINE=$(style_text "$STYLE")
@@ -484,8 +496,13 @@ $SYSTEM_PROMPT"
 
   while [[ $ATTEMPT -le $MAX_RETRIES && "$SUCCESS" == "false" ]]; do
     if [[ $ATTEMPT -gt 0 ]]; then
-      # Exponential backoff: 2s, 4s, ...
+      # Exponential backoff (2s, 4s, ...), unless the server said how long to wait: Azure's
+      # per-minute token limits commonly ask for 8-60s, which a 2s retry would just hit again.
       local WAIT=$((2 ** ATTEMPT))
+      if [[ -n "$SERVER_WAIT" ]]; then
+        WAIT="$SERVER_WAIT"
+        SERVER_WAIT=""
+      fi
       echo "  Retry $ATTEMPT/$MAX_RETRIES for $MODEL (waiting ${WAIT}s)..." >&2
       sleep "$WAIT"
     fi
@@ -519,6 +536,7 @@ ${RETRY_ADDENDUM//__ATTEMPT__/$((ATTEMPT + 1))}"
         "$AZURE_ENDPOINT/openai/v1/chat/completions" \
         -H "Content-Type: application/json" \
         -H "api-key: $API_KEY" \
+        -D "$HDR_FILE" \
         -d "$PAYLOAD" 2>/dev/null) || CURL_FAILED=true
     else
       PAYLOAD=$(jq -n \
@@ -544,6 +562,7 @@ ${RETRY_ADDENDUM//__ATTEMPT__/$((ATTEMPT + 1))}"
         -H "Authorization: Bearer $API_KEY" \
         -H "HTTP-Referer: https://github.com/mix-of-experts-plugin" \
         -H "X-Title: Mix of Experts Plugin" \
+        -D "$HDR_FILE" \
         -d "$PAYLOAD" 2>/dev/null) || CURL_FAILED=true
     fi
 
@@ -563,6 +582,7 @@ ${RETRY_ADDENDUM//__ATTEMPT__/$((ATTEMPT + 1))}"
         echo "curl failed — check network connectivity or DNS resolution."
       } > "$OUTPUT_FILE"
       record_cost "$OUTPUT_FILE" "$SPENT"
+      rm -f "$HDR_FILE"
       echo "FAILED"
       return
     fi
@@ -585,6 +605,22 @@ ${RETRY_ADDENDUM//__ATTEMPT__/$((ATTEMPT + 1))}"
       # and return no content at all, which is the same problem, not a transient failure.
       local FINISH
       FINISH=$(echo "$BODY" | jq -r '.choices[0].finish_reason // empty' 2>/dev/null || true)
+      # A content-filtered answer is empty or partial and would be blocked again on retry
+      # (Microsoft: don't resend the same blocked prompt), so it fails immediately.
+      if [[ "$FINISH" == "content_filter" ]]; then
+        {
+          echo "# ERROR from $MODEL"
+          echo ""
+          echo "**Status**: CONTENT_FILTERED"
+          echo "**Attempts**: $((ATTEMPT + 1))"
+          echo ""
+          echo "The provider's content filter blocked this response. Rephrase the prompt package; retrying it unchanged will be blocked again."
+        } > "$OUTPUT_FILE"
+        rm -f "$HDR_FILE"
+        record_cost "$OUTPUT_FILE" "$SPENT"
+        echo "FAILED"
+        return
+      fi
       if [[ "$FINISH" == "length" && "$EXPANDED" == "false" ]]; then
         EXPANDED=true
         TOKENS=$((TOKENS * 2))
@@ -614,6 +650,7 @@ ${RETRY_ADDENDUM//__ATTEMPT__/$((ATTEMPT + 1))}"
           echo "Model returned 200 but with no content."
         } > "$OUTPUT_FILE"
         record_cost "$OUTPUT_FILE" "$SPENT"
+        rm -f "$HDR_FILE"
         echo "FAILED"
         return
       fi
@@ -640,7 +677,13 @@ ${RETRY_ADDENDUM//__ATTEMPT__/$((ATTEMPT + 1))}"
       SUCCESS=true
 
     elif [[ "$HTTP_CODE" -eq 429 || "$HTTP_CODE" -ge 500 ]]; then
-      # Rate limit or server error — retryable
+      # Rate limit or server error — retryable. Honour Retry-After (seconds), capped so one
+      # throttled model cannot stall the whole fan-out for minutes.
+      local RETRY_AFTER
+      RETRY_AFTER=$(tr -d '\r' < "$HDR_FILE" | awk 'tolower($1)=="retry-after:" {v=$2} END {print v}')
+      if [[ "$RETRY_AFTER" =~ ^[0-9]+$ ]]; then
+        SERVER_WAIT=$(( RETRY_AFTER > 60 ? 60 : (RETRY_AFTER < 1 ? 1 : RETRY_AFTER) ))
+      fi
       ATTEMPT=$((ATTEMPT + 1))
       if [[ $ATTEMPT -le $MAX_RETRIES ]]; then
         continue
@@ -656,6 +699,7 @@ ${RETRY_ADDENDUM//__ATTEMPT__/$((ATTEMPT + 1))}"
         echo '```'
       } > "$OUTPUT_FILE"
       record_cost "$OUTPUT_FILE" "$SPENT"
+      rm -f "$HDR_FILE"
       echo "FAILED"
       return
 
@@ -672,11 +716,13 @@ ${RETRY_ADDENDUM//__ATTEMPT__/$((ATTEMPT + 1))}"
         echo '```'
       } > "$OUTPUT_FILE"
       record_cost "$OUTPUT_FILE" "$SPENT"
+      rm -f "$HDR_FILE"
       echo "FAILED"
       return
     fi
   done
 
+  rm -f "$HDR_FILE"
   if [[ "$SUCCESS" == "true" ]]; then
     if grep -q '^\*\*Status\*\*: TRUNCATED' "$OUTPUT_FILE"; then
       echo "TRUNCATED"

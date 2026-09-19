@@ -190,6 +190,12 @@ Foundry has no default models. List your deployment names in `models:`.
 **Azure HTTP 400 / 404**
 Check that each `models:` entry is an exact deployment name in that resource and that the endpoint is the resource root (`https://YOUR-RESOURCE.services.ai.azure.com`, without `/openai/...`).
 
+**Azure HTTP 401 with a project endpoint**
+Endpoints like `https://<resource>.services.ai.azure.com/api/projects/<name>` are documented for Entra ID tokens. With an API key, use the resource endpoint `https://<resource>.services.ai.azure.com`.
+
+**`CONTENT_FILTERED`**
+The provider's content filter blocked the answer. Rephrase the prompt package; the same prompt is blocked again, so it is not retried.
+
 **Background run stuck in `running`**
 `bash scripts/moe-status.sh --run-id <id>` reconciles it: if the process is gone, the run becomes `done` (a summary was written) or `failed` with `FAIL_REASON=orphaned: ...`. Details are in `~/.cache/moe-plugin/runs/<id>/stdout.log`.
 

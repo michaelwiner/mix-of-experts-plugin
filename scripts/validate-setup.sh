@@ -77,6 +77,9 @@ case "$PROVIDER" in
     ENDPOINT="${AZURE_OPENAI_ENDPOINT:-}"
     [[ -z "$ENDPOINT" ]] && ENDPOINT=$(get_setting azure_endpoint)
     [[ -z "$ENDPOINT" ]] && WARNINGS+=("azure-foundry: no endpoint. Set AZURE_OPENAI_ENDPOINT or azure_endpoint in $SETTINGS_FILE.")
+    if [[ "$ENDPOINT" == */api/projects/* ]]; then
+      WARNINGS+=("azure-foundry: $ENDPOINT is a project endpoint; API keys usually need the resource endpoint (https://<resource>.services.ai.azure.com).")
+    fi
     if [[ -z "$(get_setting models)" ]] && ! echo "$FRONTMATTER" | grep -q '^models_[a-z-]*:'; then
       WARNINGS+=("azure-foundry: 'models:' (Foundry deployment names) is required in $SETTINGS_FILE.")
     fi
