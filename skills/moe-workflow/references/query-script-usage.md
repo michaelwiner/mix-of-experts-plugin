@@ -68,7 +68,7 @@ URLs at the end. Web search settings are part of the cache key.
 
 - **Before the run (OpenRouter):** the script prices one full-length (`max_tokens`) answer per
   uncached model from OpenRouter's public model list and prints `Estimated max cost: $X`.
-  If that is above `max_cost_usd` (default `$1`), it prints
+  If that is above `max_cost_usd` (default `$0.50`), it prints
   `COST_GATE: estimated $X exceeds max_cost_usd $Y ...` and exits **3** without calling any
   model. Ask the user; re-run with `--confirm-cost` only if they agree.
 - **After the run:** the real cost comes from each response's `usage.cost`, including paid

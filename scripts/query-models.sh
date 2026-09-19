@@ -157,7 +157,7 @@ MAX_COST_USD=$(get_setting max_cost_usd)
 [[ -z "$TIMEOUT" ]] && TIMEOUT=300
 [[ -z "$MAX_RETRIES" ]] && MAX_RETRIES=1
 [[ -z "$STYLES_RAW" ]] && STYLES_RAW="ship,scale,simplify"
-[[ -z "$MAX_COST_USD" ]] && MAX_COST_USD=1
+[[ -z "$MAX_COST_USD" ]] && MAX_COST_USD=0.5
 [[ -z "$WEB_MAX" ]] && WEB_MAX=3
 # Exa is the default engine: it honours max_uses, reports the search count, and costs a flat
 # ~$0.007 per search. Native engines may ignore the cap in reporting and cost several times more.

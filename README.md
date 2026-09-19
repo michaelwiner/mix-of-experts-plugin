@@ -6,7 +6,7 @@ Your agent (Claude Code or Cursor) acts as the **director**. It writes a self-co
 
 - **Claude Code**: installs as a plugin with a `/moe` command
 - **Cursor**: installs as a skill; ask for "mix of experts" in chat
-- **Cost**: typically $0.01–$0.10 per round on OpenRouter. It's shown after every run, and a run estimated above $1 stops and asks first
+- **Cost**: typically $0.01–$0.10 per round on OpenRouter. It's shown after every run, and a run estimated above $0.50 stops and asks first
 
 ---
 
@@ -148,7 +148,7 @@ With OpenRouter and `OPENROUTER_API_KEY` set, **no file is needed**. The default
 ---
 models: openai/gpt-5.2,google/gemini-3-flash-preview,deepseek/deepseek-v3.2-20251201
 web_search: architecture,review
-max_cost_usd: 1
+max_cost_usd: 0.5
 ---
 ```
 
@@ -186,7 +186,7 @@ Add `*.local.md` settings to `.gitignore`. Keys belong in environment variables,
 | `web_search` | `off` | `on`, `off`, or rounds (e.g. `architecture,review`). OpenRouter only |
 | `web_search_max` | `3` | Max searches per expert per call (enforced by OpenRouter) |
 | `web_search_engine` | `exa` | `exa` (~$0.007/search), `auto`, `native`, `parallel`, `perplexity` |
-| `max_cost_usd` | `1` | A run estimated above this asks for confirmation first (OpenRouter) |
+| `max_cost_usd` | `0.5` | A run estimated above this asks for confirmation first (OpenRouter) |
 | `max_tokens` | `8000` | Max answer length per expert (includes reasoning tokens on reasoning models) |
 | `temperature` | `0.3` | 0.0–2.0. Not sent to Azure (its reasoning models reject it) |
 | `timeout` | `300` | Seconds per API call |

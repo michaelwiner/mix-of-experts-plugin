@@ -92,7 +92,7 @@ Any markdown content below the frontmatter is ignored by the script.
 | `web_search` | No | `off` | `on`, `off`, or phases, e.g. `architecture,review`. Lets experts search the web (OpenRouter only) |
 | `web_search_max` | No | `3` | Maximum searches per expert per call (enforced by OpenRouter) |
 | `web_search_engine` | No | `exa` | `exa`, `auto`, `native`, `parallel`, `perplexity` |
-| `max_cost_usd` | No | `1` | Pre-run estimate above this blocks the run (exit 3) until re-run with `--confirm-cost`. OpenRouter only |
+| `max_cost_usd` | No | `0.5` | Pre-run estimate above this blocks the run (exit 3) until re-run with `--confirm-cost`. OpenRouter only |
 | `max_tokens` | No | `8000` | Maximum completion tokens per model |
 | `temperature` | No | `0.3` | 0.0 – 2.0. Ignored (not sent) for `azure-foundry` |
 | `timeout` | No | `300` | Max seconds per API call |
