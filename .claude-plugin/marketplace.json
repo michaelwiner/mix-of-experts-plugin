@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "mix-of-experts",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Consult several AI models (via OpenRouter or Azure AI Foundry) as expert advisors during feature development: clarify, architecture and review rounds, synthesized into one report.",
   "metadata": {
     "description": "Mix of Experts: multi-model consultation for Claude Code (and Cursor) via OpenRouter or Azure AI Foundry."
@@ -13,7 +13,7 @@
     {
       "name": "mix-of-experts",
       "description": "Multi-model consultation workflow for feature development (OpenRouter or Azure AI Foundry)",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "source": "./",
       "category": "development"
     }
