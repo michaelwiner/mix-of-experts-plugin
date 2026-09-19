@@ -32,7 +32,7 @@ if [[ ! -f "$SETTINGS" ]]; then
   # Seed the provider whose key is actually present, so the first run works out of the box.
   if [[ -n "${OPENROUTER_API_KEY:-}" && -z "${AZURE_OPENAI_API_KEY:-}${AZURE_OPENAI_KEY:-}" ]]; then
     SEED_PROVIDER="openrouter"
-    SEED_MODELS="openai/gpt-5.2,google/gemini-3-flash-preview,deepseek/deepseek-v3.2-20251201"
+    SEED_MODELS="openai/gpt-5.6-sol,google/gemini-3.8-flash,x-ai/grok-4.6"
   else
     SEED_PROVIDER="azure-foundry"
     SEED_MODELS="grok-4.6-expert,DeepSeek-V4-Pro-expert,gpt-5.6-sol"
@@ -50,7 +50,7 @@ retries: 1
 Mix of Experts settings for Cursor. Secrets come from the environment:
 AZURE_OPENAI_API_KEY (or AZURE_OPENAI_KEY) and AZURE_OPENAI_ENDPOINT for azure-foundry,
 OPENROUTER_API_KEY for openrouter. Switch by changing provider and models together
-(Foundry deployment names, or OpenRouter IDs such as openai/gpt-5.2).
+(Foundry deployment names, or OpenRouter IDs such as openai/gpt-5.6-sol).
 SETTINGS_EOF
   chmod 600 "$SETTINGS"
   echo "Seeded $SETTINGS (edit models/provider to taste)"

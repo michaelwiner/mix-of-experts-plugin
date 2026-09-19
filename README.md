@@ -6,7 +6,7 @@ Your agent (Claude Code or Cursor) acts as the **director**. It writes a self-co
 
 - **Claude Code**: installs as a plugin with a `/moe` command
 - **Cursor**: installs as a skill; ask for "mix of experts" in chat
-- **Cost**: typically $0.01–$0.10 per round on OpenRouter. It's shown after every run, and a run estimated above $0.50 stops and asks first
+- **Cost**: typically $0.15–$0.35 per round on OpenRouter with the default models. It's shown after every run, and a run estimated above $0.50 stops and asks first
 
 ---
 
@@ -140,13 +140,13 @@ Settings live in the YAML front matter of a `.local.md` file. The agent uses the
 3. `<your project>/.claude/mix-of-experts-plugin.local.md`
 4. `~/.claude/mix-of-experts-plugin.local.md`
 
-With OpenRouter and `OPENROUTER_API_KEY` set, **no file is needed**. The defaults are GPT-5.2, Gemini 3 Flash and DeepSeek V3.2.
+With OpenRouter and `OPENROUTER_API_KEY` set, **no file is needed**. The defaults are GPT-5.6 Sol, Gemini 3.8 Flash and Grok 4.6: three vendors, about $0.15–0.35 per round with web search (the upper end when an answer is long enough to need a retry with a bigger token budget).
 
 **Recommended (OpenRouter):**
 
 ```markdown
 ---
-models: openai/gpt-5.2,google/gemini-3-flash-preview,deepseek/deepseek-v3.2-20251201
+models: openai/gpt-5.6-sol,google/gemini-3.8-flash,x-ai/grok-4.6
 web_search: architecture,review
 max_cost_usd: 0.5
 ---
@@ -167,8 +167,8 @@ On Azure, `models` are **your deployment names**, not model IDs. Use the resourc
 
 ```markdown
 ---
-models: openai/gpt-5.2,google/gemini-3-pro-preview,deepseek/deepseek-v3.2-20251201
-models_clarify: google/gemini-3-flash-preview,deepseek/deepseek-v3.2-20251201
+models: openai/gpt-5.6-sol,google/gemini-3.8-flash,x-ai/grok-4.6
+models_clarify: openai/gpt-5.6-luna,google/gemini-3.8-flash,z-ai/glm-5.3
 ---
 ```
 
@@ -179,7 +179,7 @@ Add `*.local.md` settings to `.gitignore`. Keys belong in environment variables,
 | Field | Default | Description |
 |-------|---------|-------------|
 | `provider` | `openrouter` | `openrouter` or `azure-foundry` |
-| `models` | GPT-5.2, Gemini 3 Flash, DeepSeek V3.2 | Comma-separated OpenRouter IDs, or Foundry deployment names (required on Azure) |
+| `models` | GPT-5.6 Sol, Gemini 3.8 Flash, Grok 4.6 | Comma-separated OpenRouter IDs, or Foundry deployment names (required on Azure) |
 | `models_<phase>` | -- | Per-round override, e.g. `models_clarify:`. Phases: `clarify`, `architecture`, `review`, `ad-hoc` |
 | `fallback_models` | -- | Used when a primary model fails after its retries |
 | `styles` | `ship,scale,simplify` | One professional lens per expert, in model order; `off` to disable |
