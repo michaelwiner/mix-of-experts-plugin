@@ -148,6 +148,9 @@ TIMEOUT=$(get_setting timeout)
 MAX_RETRIES=$(get_setting retries)
 FALLBACKS_RAW=$(get_setting fallback_models)
 STYLES_RAW=$(get_setting styles)
+WEB_RAW=$(get_setting web_search)
+WEB_MAX=$(get_setting web_search_max)
+WEB_ENGINE=$(get_setting web_search_engine)
 MAX_COST_USD=$(get_setting max_cost_usd)
 [[ -z "$MAX_TOKENS" ]] && MAX_TOKENS=8000
 [[ -z "$TEMPERATURE" ]] && TEMPERATURE=0.3
@@ -155,6 +158,27 @@ MAX_COST_USD=$(get_setting max_cost_usd)
 [[ -z "$MAX_RETRIES" ]] && MAX_RETRIES=1
 [[ -z "$STYLES_RAW" ]] && STYLES_RAW="ship,scale,simplify"
 [[ -z "$MAX_COST_USD" ]] && MAX_COST_USD=1
+[[ -z "$WEB_MAX" ]] && WEB_MAX=3
+# Exa is the default engine: it honours max_uses, reports the search count, and costs a flat
+# ~$0.007 per search. Native engines may ignore the cap in reporting and cost several times more.
+[[ -z "$WEB_ENGINE" ]] && WEB_ENGINE=exa
+
+# web_search: off (default) | on | comma-separated phases, e.g. "architecture,review".
+WEB_ON=false
+case "$(echo "$WEB_RAW" | tr -d ' ')" in
+  ""|off|false|no) ;;
+  on|true|yes) WEB_ON=true ;;
+  *) [[ ",$(echo "$WEB_RAW" | tr -d ' ')," == *",$PHASE,"* ]] && WEB_ON=true ;;
+esac
+# Azure's chat completions route has no web search tool, and sending an OpenRouter tool type
+# there would be rejected. So the request is never sent with it: the run degrades to no-search
+# instructions, and the header says why, so the director knows to verify claims itself.
+WEB_UNAVAILABLE=""
+if [[ "$WEB_ON" == "true" && "$PROVIDER" != "openrouter" ]]; then
+  echo "WARNING: web_search is only available with provider openrouter; $PROVIDER experts run without it." >&2
+  WEB_UNAVAILABLE="requested, but not available on $PROVIDER"
+  WEB_ON=false
+fi
 
 # ── Validate settings ─────────────────────────────────────────────
 validate_positive_int() {
@@ -203,6 +227,11 @@ validate_positive_int "max_tokens" "$MAX_TOKENS"
 validate_temperature "$TEMPERATURE"
 validate_positive_int "timeout" "$TIMEOUT"
 validate_non_negative_int "retries" "$MAX_RETRIES"
+validate_positive_int "web_search_max" "$WEB_MAX"
+case "$WEB_ENGINE" in
+  exa|auto|native|parallel|perplexity) ;;
+  *) echo "ERROR: web_search_engine must be exa, auto, native, parallel or perplexity, got '$WEB_ENGINE'" >&2; exit 1 ;;
+esac
 if ! [[ "$MAX_COST_USD" =~ ^[0-9]+\.?[0-9]*$ ]]; then
   echo "ERROR: max_cost_usd must be a non-negative number, got '$MAX_COST_USD'" >&2
   exit 1
@@ -230,6 +259,16 @@ style_for_index() {
     echo "${STYLES[$(( $1 % ${#STYLES[@]} ))]}"
   fi
 }
+
+# Tells experts what searches are for. Without it models spend the budget on general knowledge
+# they already have, instead of on facts that go stale.
+# Without search the risk is the same (stale facts stated as current), so the experts are told
+# to flag them rather than silently answer from training data.
+if [[ "$WEB_ON" == "true" ]]; then
+  WEB_ADDENDUM="WEB SEARCH: you can call the web_search tool at most ${WEB_MAX} times. Spend searches only on facts that go stale: current versions, whether a service, API or library still exists or is deprecated, current pricing and limits, recent breaking changes. Do not search for general engineering knowledge. Cite the URL inline for every claim that relies on a search. Mark claims about external products that you could not verify as (unverified)."
+else
+  WEB_ADDENDUM="NO WEB ACCESS: you cannot browse, and your knowledge has a cutoff. Mark every claim about current versions, whether a service, API or library still exists or is deprecated, or current pricing and limits as (unverified), and say what the operator should check. Prefer recommendations that do not depend on such facts."
+fi
 
 style_text() {
   case "$1" in
@@ -271,8 +310,9 @@ cache_key() {
   local MODEL="$1" STYLE="${2:-neutral}"
   # PROVIDER is part of the key: the same model name on two providers is not the same model.
   # SYSTEM_HASH is too, so editing a phase's required sections never serves stale-format answers.
-  echo -n "${PROVIDER}|${PHASE}|${MODEL}|${STYLE}|${TEMPERATURE}|${MAX_TOKENS}|${PROMPT_HASH}|${SYSTEM_HASH}" | shasum -a 256 2>/dev/null | cut -d' ' -f1 || \
-    echo -n "${PROVIDER}|${PHASE}|${MODEL}|${STYLE}|${TEMPERATURE}|${MAX_TOKENS}|${PROMPT_HASH}|${SYSTEM_HASH}" | md5 2>/dev/null
+  local WEB_KEY="web=${WEB_ON}:${WEB_MAX}:${WEB_ENGINE}"
+  echo -n "${PROVIDER}|${PHASE}|${MODEL}|${STYLE}|${WEB_KEY}|${TEMPERATURE}|${MAX_TOKENS}|${PROMPT_HASH}|${SYSTEM_HASH}" | shasum -a 256 2>/dev/null | cut -d' ' -f1 || \
+    echo -n "${PROVIDER}|${PHASE}|${MODEL}|${STYLE}|${WEB_KEY}|${TEMPERATURE}|${MAX_TOKENS}|${PROMPT_HASH}|${SYSTEM_HASH}" | md5 2>/dev/null
 }
 
 # ── Create output directory ────────────────────────────────────────
@@ -389,7 +429,7 @@ IMPORTANT: Your response is limited to ${MAX_TOKENS} tokens. Be concise and prio
     ;;
 esac
 
-SYSTEM_HASH=$(printf '%s' "$SYSTEM_PROMPT" | shasum -a 256 2>/dev/null | cut -d' ' -f1 || echo "nohash")
+SYSTEM_HASH=$(printf '%s\n%s' "$SYSTEM_PROMPT" "$WEB_ADDENDUM" | shasum -a 256 2>/dev/null | cut -d' ' -f1 || echo "nohash")
 
 # Appended on retries: the usual failure is an empty or truncated answer, and restating the
 # contract measurably reduces the chance the second attempt fails the same way.
@@ -439,6 +479,11 @@ if [[ "$PROVIDER" == "openrouter" ]]; then
       fi
       _MC=$(echo "$PRICES" | jq -r --arg id "$_EM" --argjson pt "$_EST_PROMPT_TOKENS" --argjson ct "$MAX_TOKENS" \
         'map(select(.id == $id and .p != null and .c != null)) | if length > 0 then (.[0].p * $pt + .[0].c * $ct) else empty end' 2>/dev/null || true)
+      # Worst case includes every allowed search (Exa ~$0.007 each; other engines are priced
+      # differently, so this is a floor for them).
+      if [[ -n "$_MC" && "$WEB_ON" == "true" ]]; then
+        _MC=$(echo "$_MC + 0.007 * $WEB_MAX" | bc -l)
+      fi
       if [[ -z "$_MC" ]]; then
         _UNPRICED+=" $_EM"
       else
@@ -492,6 +537,11 @@ call_model() {
     BASE_SYSTEM="$STYLE_LINE Treat this as your emphasis, not a blind spot: still cover every required section.
 
 $SYSTEM_PROMPT"
+  fi
+  if [[ -n "$WEB_ADDENDUM" ]]; then
+    BASE_SYSTEM="$BASE_SYSTEM
+
+$WEB_ADDENDUM"
   fi
 
   while [[ $ATTEMPT -le $MAX_RETRIES && "$SUCCESS" == "false" ]]; do
@@ -554,6 +604,11 @@ ${RETRY_ADDENDUM//__ATTEMPT__/$((ATTEMPT + 1))}"
           max_tokens: $max_tokens,
           temperature: $temperature
         }')
+      if [[ "$WEB_ON" == "true" ]]; then
+        # max_uses is enforced server-side: past the cap the model is told the limit was hit.
+        PAYLOAD=$(echo "$PAYLOAD" | jq --argjson max_uses "$WEB_MAX" --arg engine "$WEB_ENGINE" \
+          '. + {tools: [{type: "openrouter:web_search", parameters: {max_uses: $max_uses, engine: $engine}}]}')
+      fi
       RESPONSE=$(curl -s -w "\n%{http_code}" \
         --max-time "$TIMEOUT" \
         --connect-timeout 10 \
@@ -657,12 +712,23 @@ ${RETRY_ADDENDUM//__ATTEMPT__/$((ATTEMPT + 1))}"
 
       USAGE_PROMPT=$(echo "$BODY" | jq -r '.usage.prompt_tokens // "N/A"')
       USAGE_COMPLETION=$(echo "$BODY" | jq -r '.usage.completion_tokens // "N/A"')
+      local SEARCHES="" SOURCES=""
+      if [[ "$WEB_ON" == "true" ]]; then
+        SEARCHES=$(echo "$BODY" | jq -r '.usage.server_tool_use_details.web_search_requests // 0' 2>/dev/null || echo 0)
+        SOURCES=$(echo "$BODY" | jq -r '[.choices[0].message.annotations[]? | select(.type == "url_citation") | .url_citation]
+          | unique_by(.url) | .[] | "- [\((.title // "") | gsub("[\\[\\]\n]"; " ") | if . == "" then "link" else . end)](\(.url))"' 2>/dev/null || true)
+      fi
 
       {
         echo "# Response from $MODEL"
         echo ""
         echo "**Provider**: $PROVIDER"
         echo "**Style**: $STYLE"
+        if [[ "$WEB_ON" == "true" ]]; then
+          echo "**Web searches**: $SEARCHES of $WEB_MAX ($WEB_ENGINE)"
+        elif [[ -n "$WEB_UNAVAILABLE" ]]; then
+          echo "**Web searches**: none ($WEB_UNAVAILABLE)"
+        fi
         echo "**Tokens**: prompt=$USAGE_PROMPT, completion=$USAGE_COMPLETION"
         echo "**Attempts**: $((ATTEMPT + 1))$([[ "$EXPANDED" == "true" ]] && echo " (+1 with max_tokens=$TOKENS)")"
         [[ "$PROVIDER" == "openrouter" ]] && printf '**Cost**: $%.4f\n' "$SPENT"
@@ -671,6 +737,11 @@ ${RETRY_ADDENDUM//__ATTEMPT__/$((ATTEMPT + 1))}"
         echo "---"
         echo ""
         echo "$CONTENT"
+        if [[ -n "$SOURCES" ]]; then
+          echo ""
+          echo "## Web Sources"
+          echo "$SOURCES"
+        fi
       } > "$OUTPUT_FILE"
 
       record_cost "$OUTPUT_FILE" "$SPENT"

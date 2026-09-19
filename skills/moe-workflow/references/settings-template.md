@@ -89,6 +89,9 @@ Any markdown content below the frontmatter is ignored by the script.
 | `models_<phase>` | No | - | Overrides `models` for one round, e.g. `models_clarify:` with cheaper models. Phases: `clarify`, `architecture`, `review`, `ad-hoc` |
 | `fallback_models` | No | - | Same format as `models`; used when a primary model fails after all retries |
 | `styles` | No | `ship,scale,simplify` | Professional lens per expert, assigned by model position and rotating. Values: `ship`, `scale`, `simplify`, `neutral`, or `off` |
+| `web_search` | No | `off` | `on`, `off`, or phases, e.g. `architecture,review`. Lets experts search the web (OpenRouter only) |
+| `web_search_max` | No | `3` | Maximum searches per expert per call (enforced by OpenRouter) |
+| `web_search_engine` | No | `exa` | `exa`, `auto`, `native`, `parallel`, `perplexity` |
 | `max_cost_usd` | No | `1` | Pre-run estimate above this blocks the run (exit 3) until re-run with `--confirm-cost`. OpenRouter only |
 | `max_tokens` | No | `8000` | Maximum completion tokens per model |
 | `temperature` | No | `0.3` | 0.0 – 2.0. Ignored (not sent) for `azure-foundry` |
@@ -109,6 +112,36 @@ each expert gets one professional lens, in model order:
 
 The lens is an emphasis: every expert still returns every required section. `styles: off`
 disables it. The style is recorded in each response header (`**Style**:`).
+
+## Web search
+
+Experts have no web access by default, so they answer from training data and can recommend
+services that no longer exist or quote old versions. With `web_search` on, each expert can call
+OpenRouter's web search tool up to `web_search_max` times (default 3; the cap is enforced
+server-side, past it the model is told the limit was hit) and must cite URLs for searched claims
+and mark unverifiable product claims `(unverified)`.
+
+```markdown
+---
+web_search: architecture,review
+web_search_max: 3
+---
+```
+
+- **Recommended rounds:** `architecture` and `review`. `clarify` rarely needs it.
+- **Cost:** the Exa engine is about $0.007 per search, so at most ~$0.02 per expert per call
+  with the default cap; it is included in the pre-run estimate and the actual `Cost:` line.
+- **Privacy:** experts write their own search queries from the package, so fragments of it can
+  reach the search provider. Leave it off for confidential work.
+- **Engine:** `exa` (default) reports the search count reliably. `native` uses the model
+  provider's own search, which can cost several times more.
+- **Azure Foundry:** its chat completions route has no web search tool, so the request is never
+  sent with one (no API error). The run warns once, headers read
+  `**Web searches**: none (requested, but not available on azure-foundry)`, and experts get the
+  no-search instructions below.
+- **Without search** (the default, or Azure) experts are told they have no web access and must
+  mark claims about current versions, availability, or pricing `(unverified)` with what to check;
+  the director verifies those before the synthesis.
 
 ## Cheaper clarify rounds
 

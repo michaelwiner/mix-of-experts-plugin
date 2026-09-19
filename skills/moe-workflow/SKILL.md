@@ -1,7 +1,7 @@
 ---
 name: MoE Feature Development Workflow
 description: This skill should be used when the user asks to "build a feature with multiple models", "use mix of experts", "get opinions from different AI models", "moe workflow", "feature dev with expert consultation", invokes the "/moe" command, or wants to leverage multiple LLM providers (GPT, Gemini, Deepseek, Grok via OpenRouter or Azure AI Foundry) for architecture design or code review during feature development.
-version: 0.1.0
+version: 0.2.0
 ---
 
 # Mix of Experts Feature Development
@@ -189,6 +189,11 @@ Poll while the status exits 2. On 0, read every `RESPONSES_DIR/*.md`. On 1, read
 **Cost gate.** If the launch exits **3** (`COST_GATE: estimated $X exceeds max_cost_usd ...`), nothing ran. Tell the user the estimate and ask; re-run with `--confirm-cost` only if they agree. After every run, report the `Cost:` from the `SUMMARY` line.
 
 **Truncated answers.** A response marked `**Status**: TRUNCATED` was cut off even after a retry with double the tokens. Use what it contains, but treat its missing sections as absent and say so in the synthesis.
+
+**Web search: two modes.** Check the `**Web searches**:` line in each response header.
+- *With search* (`web_search` on for the round, OpenRouter): experts searched up to `web_search_max` times and list `## Web Sources`. Prefer sourced claims; with conflicting sources, prefer the newer or official one and say so; check any remaining `(unverified)` product claims yourself before recommending them.
+- *Without search* (off, or `azure-foundry`, where the header says `none (requested, but not available ...)`): experts answer from training data and are told to mark current-facts claims (versions, availability, pricing) `(unverified)`. **You** are the only one who can check them: verify those claims with your own tools before the synthesis, and say in the synthesis which ones you checked. Never present an `(unverified)` claim as fact.
+- Suggest `web_search: architecture,review` on OpenRouter when the ask depends on current third-party services or versions, and not for confidential code.
 
 **Dev styles.** Each expert answers through one professional lens (`**Style**:` in its header: `ship`, `scale`, or `simplify`). Use this in the synthesis: a risk raised only by `scale` is an ops risk, not a disagreement about the design.
 

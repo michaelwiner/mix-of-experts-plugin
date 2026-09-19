@@ -56,6 +56,14 @@ Each phase sets a system prompt that requires specific `##` sections:
 Each expert's system prompt starts with one professional lens from `styles:` (default
 `ship,scale,simplify`, assigned by model position). See `settings-template.md`.
 
+### Web search
+
+With `web_search` enabled for the phase (OpenRouter only), each request carries
+`tools: [{type: "openrouter:web_search", parameters: {max_uses: <web_search_max>, engine: <web_search_engine>}}]`
+and the system prompt tells the expert what searches are for. Each response then has
+`**Web searches**: N of MAX (engine)` in its header and a `## Web Sources` list of the cited
+URLs at the end. Web search settings are part of the cache key.
+
 ### Cost
 
 - **Before the run (OpenRouter):** the script prices one full-length (`max_tokens`) answer per

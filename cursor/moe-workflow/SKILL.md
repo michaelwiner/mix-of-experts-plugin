@@ -89,6 +89,12 @@ Use `bash "$QUERY" ...` (foreground) only for quick checks. Never interrupt a fo
   `--confirm-cost` only if they agree. Always report `Cost:` from the `SUMMARY` line.
 - **`**Status**: TRUNCATED`:** cut off even after a doubled-token retry. Use it, but say which
   sections are missing.
+- **Web search** (see `**Web searches**:` in each header). *With search* (OpenRouter,
+  `web_search` on): prefer claims backed by `## Web Sources`; with conflicting sources prefer the
+  newer or official one. *Without search* (off, or Azure): experts mark current-facts claims
+  `(unverified)`; verify them yourself before the synthesis and never present them as fact.
+  Suggest `web_search: architecture,review` when the ask depends on current services or
+  versions; not for confidential code.
 - **`**Style**:`** (`ship` / `scale` / `simplify`): each expert's professional lens. A point
   raised only through one lens is a perspective, not necessarily a disagreement.
 
