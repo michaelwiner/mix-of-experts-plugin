@@ -1,237 +1,260 @@
 # Mix of Experts
 
-Consult several AI models as expert advisors during feature development. The lead agent (Claude Code or Cursor) acts as **director**: it writes a self-contained prompt package, lets the experts ask clarifying questions, answers them, then fans out for architecture proposals or code reviews and synthesizes the results.
+Get a second, third and fourth opinion on your design and your code from other AI models, without leaving Claude Code or Cursor.
 
-One repo, two fronts, one runtime:
+Your agent (Claude Code or Cursor) acts as the **director**. It writes a self-contained brief, sends it to several models in parallel (GPT, Gemini, DeepSeek, Grok, ... via **OpenRouter** or **Azure AI Foundry**), lets them ask clarifying questions, answers them, and then merges their proposals or reviews into one report: where they agree, where they disagree and who has the better argument, and which risks several of them flagged.
 
-- **Claude Code plugin**: `/moe` command, `skills/moe-workflow/`, SessionStart validation hook
-- **Cursor skill**: `cursor/moe-workflow/`, installed as a symlink at `~/.cursor/skills/moe-workflow`
-- **Runtime** (`scripts/`): talks to **OpenRouter** (default) or **Azure AI Foundry**, in the foreground or as a detached background job
+- **Claude Code**: installs as a plugin with a `/moe` command
+- **Cursor**: installs as a skill; ask for "mix of experts" in chat
+- **Cost**: typically $0.01–$0.10 per round on OpenRouter. It's shown after every run, and a run estimated above $1 stops and asks first
 
-## Overview
+---
 
-Instead of relying on a single model's perspective, Mix of Experts fans out prompts to multiple LLMs in parallel and synthesizes their responses into structured comparison reports. Consultation happens in rounds: `clarify` (experts ask questions and say what evidence would sharpen their answer), `architecture`, and `review`, plus `ad-hoc` for one-off questions.
+## Quick start (about 5 minutes)
 
-## Prerequisites
+### 1. Check the tools
 
-- [Claude Code](https://claude.ai/claude-code) and/or [Cursor](https://cursor.com)
-- One provider:
-  - an [OpenRouter](https://openrouter.ai/) API key (https://openrouter.ai/keys), or
-  - an Azure AI Foundry resource with chat model deployments, its endpoint and key
-- `curl`, `jq`, and `bc` (`brew install jq` on macOS; `curl` and `bc` are pre-installed)
-- `python3` for background jobs
-- Bash 3.2+ (the macOS system bash is fine)
-
-## Installation
-
-### Claude Code
+macOS and most Linux distros already have what's needed except, sometimes, `jq`:
 
 ```bash
-# Step 1: Register the plugin marketplace
-claude plugin marketplace add https://github.com/michaelwiner/mix-of-experts-plugin.git
-
-# Step 2: Install the plugin
-claude plugin install mix-of-experts@michaelwiner-mix-of-experts-plugin
+brew install jq          # or: sudo apt-get install jq
 ```
 
-Restart Claude Code after installation for the plugin to take effect.
+Required: `bash` (3.2+; the macOS default works), `curl`, `jq`, `bc`, and `python3` for background runs.
 
-### Cursor
+### 2. Get an API key
 
-```bash
-git clone https://github.com/michaelwiner/mix-of-experts-plugin.git
-cd mix-of-experts-plugin
-bash scripts/sync-cursor-skill.sh
-```
+Pick **one** provider:
 
-This symlinks `~/.cursor/skills/moe-workflow` to `cursor/moe-workflow/` in your clone (so `git pull` updates the skill) and seeds `~/.cursor/mix-of-experts.local.md` if it does not exist. It never overwrites an existing settings file, and refuses to replace a `~/.cursor/skills/moe-workflow` that is a real directory. `scripts/install-cursor.sh` is an alias.
+| Provider | What you need |
+|---|---|
+| **OpenRouter** (default, easiest) | A key from [openrouter.ai/keys](https://openrouter.ai/keys) with a few dollars of credit. Gives access to GPT, Gemini, DeepSeek, Grok and more from one key |
+| **Azure AI Foundry** | A Foundry resource with chat model deployments, plus its key and endpoint (**Keys and Endpoint** in the Azure portal) |
 
-## Setup
-
-Keys live in environment variables only. Add them to your shell profile (`~/.zshrc`, `~/.bashrc`):
+Add the key to your shell profile (`~/.zshrc` or `~/.bashrc`), **never** to a file in a repo:
 
 ```bash
-# OpenRouter (default provider)
-export OPENROUTER_API_KEY=sk-or-v1-your-key-here
+# OpenRouter
+export OPENROUTER_API_KEY=sk-or-v1-...
 
-# Azure AI Foundry
-export AZURE_OPENAI_API_KEY=your-foundry-key        # AZURE_OPENAI_KEY also works
+# or Azure AI Foundry
+export AZURE_OPENAI_API_KEY=...                                   # AZURE_OPENAI_KEY also works
 export AZURE_OPENAI_ENDPOINT=https://YOUR-RESOURCE.services.ai.azure.com
 ```
 
-Then pick models and a provider in a settings file. Agents use the first one that exists:
+Then open a new terminal, and **restart Claude Code or Cursor** so they see the variable.
 
-1. `<project>/.cursor/mix-of-experts.local.md`
+### 3. Install
+
+<details open>
+<summary><b>Claude Code</b></summary>
+
+```bash
+claude plugin marketplace add https://github.com/michaelwiner/mix-of-experts-plugin.git
+claude plugin install mix-of-experts@mix-of-experts
+```
+
+Restart Claude Code. At startup it checks your setup and warns if anything is missing.
+
+</details>
+
+<details open>
+<summary><b>Cursor</b></summary>
+
+```bash
+git clone https://github.com/michaelwiner/mix-of-experts-plugin.git ~/mix-of-experts-plugin
+bash ~/mix-of-experts-plugin/scripts/sync-cursor-skill.sh
+```
+
+This links `~/.cursor/skills/moe-workflow` to the clone (so a `git pull` updates it) and creates `~/.cursor/mix-of-experts.local.md` with sensible defaults for whichever key you exported. It never overwrites an existing settings file.
+
+</details>
+
+### 4. Check the setup
+
+```bash
+# Cursor
+bash ~/.cursor/skills/moe-workflow/scripts/validate-setup.sh < /dev/null
+
+# Claude Code
+bash ~/.claude/plugins/cache/mix-of-experts/mix-of-experts/*/scripts/validate-setup.sh < /dev/null
+```
+
+You want: `[MoE Plugin] Setup OK`. Anything else is a warning that says what to fix. (Both skills also run this check whenever the workflow starts.)
+
+### 5. First run
+
+**Claude Code:**
+
+```
+/moe Add rate limiting to our public API
+```
+
+**Cursor** (in the agent chat):
+
+```
+Use mix of experts to design rate limiting for our public API
+```
+
+The agent explores your code, asks you what it can't work out, runs a clarify round and then an architecture round with the experts, and shows you a synthesis. **It won't write code until you approve an approach.**
+
+For a quick one-off opinion instead of the full workflow, ask for it in plain words: *"ask the experts whether we should use Postgres advisory locks or Redis for this"*.
+
+---
+
+## What happens during a run
+
+```
+You describe the feature
+   │
+   ▼
+Director explores the code and asks you what it can't work out
+   │
+   ▼
+Clarify round ─ each expert asks ≤3 questions and says what evidence it needs
+   │            (files, schemas, logs); the director answers and adds that evidence
+   ▼
+Architecture round ─ each expert proposes a design through its own lens
+   │
+   ▼
+Synthesis ─ consensus, disagreements, unique ideas, risks → you pick an approach
+   │
+   ▼
+Implementation → optional Review round on the diff → summary
+```
+
+- **Experts see only the brief.** They have no access to your repo. The director writes a nine-section *prompt package* (goal, problem, constraints, Q&A, code context, current state, success criteria, the ask, assumptions); see `skills/moe-workflow/references/prompt-package.md`.
+- **Different lenses.** By default each expert argues from one professional style: `ship` (pragmatic startup engineer), `scale` (staff/SRE), `simplify` (principal maintainer).
+- **Runs in the background.** Rounds take a minute or two and run as detached jobs, so an interrupted agent turn doesn't lose them.
+- **Honest failures.** An answer cut off by the token limit is retried with a bigger budget and flagged `TRUNCATED` if it's still cut off; a failed model is reported as failed, never silently dropped.
+- **Optional web search** (OpenRouter): let experts check current facts such as versions, deprecations and pricing, at most 3 searches each by default, with cited sources. Off by default.
+
+---
+
+## Settings
+
+Settings live in the YAML front matter of a `.local.md` file. The agent uses the **first** one that exists:
+
+1. `<your project>/.cursor/mix-of-experts.local.md`
 2. `~/.cursor/mix-of-experts.local.md`
-3. `<project>/.claude/mix-of-experts-plugin.local.md`
+3. `<your project>/.claude/mix-of-experts-plugin.local.md`
 4. `~/.claude/mix-of-experts-plugin.local.md`
 
-Azure AI Foundry:
+With OpenRouter and `OPENROUTER_API_KEY` set, **no file is needed**. The defaults are GPT-5.2, Gemini 3 Flash and DeepSeek V3.2.
+
+**Recommended (OpenRouter):**
+
+```markdown
+---
+models: openai/gpt-5.2,google/gemini-3-flash-preview,deepseek/deepseek-v3.2-20251201
+web_search: architecture,review
+max_cost_usd: 1
+---
+```
+
+**Azure AI Foundry:**
 
 ```markdown
 ---
 provider: azure-foundry
 models: grok-4.6-expert,DeepSeek-V4-Pro-expert,gpt-5.6-sol
-max_tokens: 8000
-retries: 1
 ---
 ```
 
-OpenRouter (the file is optional if `OPENROUTER_API_KEY` is set and the default models suit you):
+On Azure, `models` are **your deployment names**, not model IDs. Use the resource endpoint (`https://<resource>.services.ai.azure.com`), not a project endpoint. Web search isn't available on Azure.
+
+**Cheaper clarify rounds** (any round can have its own models):
 
 ```markdown
 ---
-models: openai/gpt-5.2,google/gemini-3-flash-preview,deepseek/deepseek-v3.2-20251201
+models: openai/gpt-5.2,google/gemini-3-pro-preview,deepseek/deepseek-v3.2-20251201
+models_clarify: google/gemini-3-flash-preview,deepseek/deepseek-v3.2-20251201
 ---
 ```
 
-See [Configuration Reference](#configuration-reference) for all options.
+Add `*.local.md` settings to `.gitignore`. Keys belong in environment variables, not in these files.
 
-> **Note**: Never put keys in a settings file you might commit. `openrouter_api_key` and `azure_api_key` are still read as fallbacks, but the env vars always take priority.
+### All options
 
-### Verify
+| Field | Default | Description |
+|-------|---------|-------------|
+| `provider` | `openrouter` | `openrouter` or `azure-foundry` |
+| `models` | GPT-5.2, Gemini 3 Flash, DeepSeek V3.2 | Comma-separated OpenRouter IDs, or Foundry deployment names (required on Azure) |
+| `models_<phase>` | -- | Per-round override, e.g. `models_clarify:`. Phases: `clarify`, `architecture`, `review`, `ad-hoc` |
+| `fallback_models` | -- | Used when a primary model fails after its retries |
+| `styles` | `ship,scale,simplify` | One professional lens per expert, in model order; `off` to disable |
+| `web_search` | `off` | `on`, `off`, or rounds (e.g. `architecture,review`). OpenRouter only |
+| `web_search_max` | `3` | Max searches per expert per call (enforced by OpenRouter) |
+| `web_search_engine` | `exa` | `exa` (~$0.007/search), `auto`, `native`, `parallel`, `perplexity` |
+| `max_cost_usd` | `1` | A run estimated above this asks for confirmation first (OpenRouter) |
+| `max_tokens` | `8000` | Max answer length per expert (includes reasoning tokens on reasoning models) |
+| `temperature` | `0.3` | 0.0–2.0. Not sent to Azure (its reasoning models reject it) |
+| `timeout` | `300` | Seconds per API call |
+| `retries` | `1` | Retries on empty answers, rate limits, 5xx and network errors |
+| `azure_endpoint` | -- | Alternative to `AZURE_OPENAI_ENDPOINT` |
+| `openrouter_api_key` / `azure_api_key` | -- | Fallbacks for the env vars. Prefer the env vars |
 
-```bash
-bash scripts/validate-setup.sh          # dependency + settings check (always exits 0)
-bash scripts/smoke-azure-foundry.sh     # live Azure call; exit 2 = skipped (no credentials)
-```
+Browse OpenRouter model IDs at [openrouter.ai/models](https://openrouter.ai/models). Mixing vendors (e.g. OpenAI + Google + DeepSeek) gives more independent opinions than several models from one family.
 
-## Usage
+---
 
-Start the workflow with the `/moe` slash command:
+## Updating and uninstalling
 
-```
-/moe Add a real-time notification system using WebSockets
-```
+| | Update | Uninstall |
+|---|---|---|
+| **Claude Code** | `claude plugin marketplace update mix-of-experts` then `claude plugin update mix-of-experts@mix-of-experts` | `claude plugin uninstall mix-of-experts@mix-of-experts` |
+| **Cursor** | `git -C ~/mix-of-experts-plugin pull` (the skill is a symlink, so that's all) | `rm ~/.cursor/skills/moe-workflow` (removes only the link) |
 
-In Cursor, ask for it in plain words ("use mix of experts to design X") and the `moe-workflow` skill takes over.
+Restart the app after updating.
 
-This kicks off a 7-phase workflow:
-
-1. **Discovery** -- Understand the feature requirements
-2. **Codebase Exploration** -- Analyze relevant existing code and patterns
-3. **Clarifying Questions** -- Resolve ambiguities with you, then run an expert `clarify` round: each model asks up to 3 questions and makes up to 3 context requests, and the director answers the questions and adds the requested evidence
-4. **Architecture Design (MoE)** -- Fan out to all configured models for diverse architectural proposals, then synthesize into a comparison report
-5. **Implementation** -- Build the feature following the chosen architecture
-6. **Quality Review (MoE)** -- Fan out to all models for code review, then synthesize findings with multi-model agreement highlighted
-7. **Summary** -- Document what was built and key decisions
-
-### Clarify, then reply
-
-The architecture round never runs on a guess. The director builds a nine-section prompt package (goal, problem, constraints, expert Q&A, codebase context, current state, success criteria, explicit ask, assumptions), sends it with `--phase clarify`, and gets two things back from each expert: **clarifying questions** (decisions) and **context requests** (the files, schemas, logs or numbers that would most sharpen their answer, and where to find them). The director answers the questions, fetches the evidence into the package, and only then sends it with `--phase architecture`. Only questions the director cannot answer from evidence come back to you. Architecture answers end by naming the missing information that would most change them, and the synthesis shows you those.
-
-### Ad-hoc consultation
-
-Outside the main workflow, you can ask for multi-model input at any time by requesting it during a conversation. The plugin supports an `ad-hoc` consultation phase for one-off technical questions.
-
-## How It Works
-
-When a consultation round runs:
-
-1. The director writes the prompt package to a file (experts see nothing else)
-2. `query-models-bg.sh` starts a detached job, so an interrupted agent turn does not kill it; `moe-status.sh` reports done / running / failed
-3. `query-models.sh` estimates the cost (and stops for confirmation above `max_cost_usd`), then sends the package to all configured models **in parallel**, each through its own professional lens, retrying empty responses, rate limits and server errors, and re-asking with double the tokens when an answer is cut off
-4. The `SUMMARY` line reports successes, truncations, cache hits and the actual cost
-5. Each model responds with the structured sections its phase requires
-6. The director reads all responses and synthesizes them, highlighting:
-   - **Consensus**: where models independently agree (strong signal)
-   - **Disagreements**: where models differ, with analysis of which argument is stronger
-   - **Unique insights**: ideas from a single model worth considering
-   - **Risk summary**: ordered by how many models flagged each risk
-
-Background runs live in `~/.cache/moe-plugin/runs/<RUN_ID>/`. See `skills/moe-workflow/references/query-script-usage.md` for the full script reference.
-
-## Configuration Reference
-
-All settings go in the YAML frontmatter of the settings file.
-
-| Field | Required | Default | Description |
-|-------|----------|---------|-------------|
-| `provider` | No | `openrouter` | `openrouter` or `azure-foundry` |
-| `models` | Azure: yes | `openai/gpt-5.2,google/gemini-3-flash-preview,deepseek/deepseek-v3.2-20251201` | Comma-separated OpenRouter IDs, or Foundry deployment names |
-| `azure_endpoint` | Azure, if `AZURE_OPENAI_ENDPOINT` unset | -- | Foundry resource URL |
-| `openrouter_api_key` / `azure_api_key` | No | -- | Fallbacks for the env vars (prefer the env) |
-| `models_<phase>` | No | -- | Per-round override of `models`, e.g. `models_clarify:` with cheaper models |
-| `fallback_models` | No | -- | Comma-separated fallback models used when primary models fail after all retries |
-| `styles` | No | `ship,scale,simplify` | One professional lens per expert (startup pragmatist, staff/SRE, principal maintainer); `off` to disable |
-| `web_search` | No | `off` | `on`, `off`, or phases (e.g. `architecture,review`): experts can search the web and cite sources (OpenRouter only) |
-| `web_search_max` | No | `3` | Max searches per expert per call, enforced by OpenRouter |
-| `web_search_engine` | No | `exa` | `exa` (flat ~$0.007/search, reliable counts), `auto`, `native`, `parallel`, `perplexity` |
-| `max_cost_usd` | No | `1` | Runs estimated above this stop (exit 3) until confirmed with `--confirm-cost` (OpenRouter) |
-| `max_tokens` | No | `8000` | Maximum completion tokens per model (`max_completion_tokens` on Azure) |
-| `temperature` | No | `0.3` | Sampling temperature (0.0--2.0). Not sent to Azure (GPT-5.x deployments reject it) |
-| `timeout` | No | `300` | Max seconds to wait per API call |
-| `retries` | No | `1` | Retries on empty responses, 429, 5xx and network errors |
-
-### Example model combinations
-
-**Balanced (default)**:
-```
-models: openai/gpt-5.2,google/gemini-3-flash-preview,deepseek/deepseek-v3.2-20251201
-```
-
-**Budget-friendly**:
-```
-models: google/gemini-3-flash-preview,deepseek/deepseek-v3.2-20251201
-```
-
-**Maximum coverage**:
-```
-models: openai/gpt-5.2,google/gemini-3-pro-preview,deepseek/deepseek-v3.2-20251201,mistralai/mistral-large
-```
-
-Browse all available models at https://openrouter.ai/models.
+---
 
 ## Troubleshooting
 
-**"No API key found"**
-Export `OPENROUTER_API_KEY` (or, for `provider: azure-foundry`, `AZURE_OPENAI_API_KEY` and `AZURE_OPENAI_ENDPOINT`) in the shell the agent runs in. If you use a settings file, check its frontmatter starts and ends with `---` lines.
+**"No API key found" even though I exported it**
+The app was started before the variable existed, or from somewhere that doesn't read your shell profile. Open a new terminal, check `echo $OPENROUTER_API_KEY`, and restart Claude Code or Cursor (or start it from that terminal).
+
+**`/moe` doesn't exist in Claude Code**
+Restart Claude Code after installing, and check `claude plugin list` shows `mix-of-experts@mix-of-experts`.
+
+**Cursor doesn't use the skill**
+Check `ls ~/.cursor/skills/moe-workflow/SKILL.md`, then ask explicitly: *"use the moe-workflow skill"*. If `sync-cursor-skill.sh` said the target "is not a symlink", move the old `~/.cursor/skills/moe-workflow` directory aside and run it again.
+
+**"COST_GATE: estimated $X exceeds max_cost_usd"**
+Nothing ran. The agent should ask you; if you agree it re-runs with `--confirm-cost`. Raise `max_cost_usd` if your rounds are routinely bigger.
+
+**An expert shows `TRUNCATED`**
+Its answer hit `max_tokens` even after a retry with double the budget. Raise `max_tokens` (reasoning models spend part of it thinking).
 
 **"provider azure-foundry requires 'models:'"**
 Foundry has no default models. List your deployment names in `models:`.
 
-**Azure HTTP 400 / 404**
-Check that each `models:` entry is an exact deployment name in that resource and that the endpoint is the resource root (`https://YOUR-RESOURCE.services.ai.azure.com`, without `/openai/...`).
-
-**Azure HTTP 401 with a project endpoint**
-Endpoints like `https://<resource>.services.ai.azure.com/api/projects/<name>` are documented for Entra ID tokens. With an API key, use the resource endpoint `https://<resource>.services.ai.azure.com`.
+**Azure HTTP 401 / 404**
+401 with an endpoint containing `/api/projects/`: use the resource endpoint `https://<resource>.services.ai.azure.com` (project endpoints expect Entra ID tokens). 404: check each `models:` entry is an exact deployment name in that resource.
 
 **`CONTENT_FILTERED`**
-The provider's content filter blocked the answer. Rephrase the prompt package; the same prompt is blocked again, so it is not retried.
+The provider's content filter blocked the answer. Rephrase; the same prompt would be blocked again, so it isn't retried.
 
-**Background run stuck in `running`**
-`bash scripts/moe-status.sh --run-id <id>` reconciles it: if the process is gone, the run becomes `done` (a summary was written) or `failed` with `FAIL_REASON=orphaned: ...`. Details are in `~/.cache/moe-plugin/runs/<id>/stdout.log`.
+**HTTP 429 (rate limit)**
+Retried automatically, waiting as long as the provider asks (up to 60s). If it persists, use fewer models or wait a minute.
 
-**"API key does not start with 'sk-or-'"**
-OpenRouter keys use the `sk-or-` prefix. Double-check you copied the full key from https://openrouter.ai/keys.
+**A background run is stuck in `running`**
+`bash <scripts>/moe-status.sh --run-id <id>` reconciles it: a run whose process is gone becomes `done` (if a summary was written) or `failed` with `FAIL_REASON=orphaned`. Logs are in `~/.cache/moe-plugin/runs/<id>/stdout.log`.
 
-**HTTP 401 (Unauthorized)**
-The API key is invalid or expired. Generate a new one at OpenRouter or in the Foundry resource.
+**All experts fail**
+Read the `# ERROR` files the run lists: usually a wrong model ID (check [openrouter.ai/models](https://openrouter.ai/models)), no credit left on the key, or a network block on `openrouter.ai` / your Azure endpoint.
 
-**HTTP 404 (Model not found)**
-The model ID in your config doesn't match an available OpenRouter model. Check the ID at https://openrouter.ai/models.
+---
 
-**HTTP 429 (Rate limit exceeded)**
-You've hit OpenRouter's rate limits. The script retries automatically with exponential backoff. If it persists, wait a minute or reduce the number of models.
+## For contributors
 
-**NETWORK_ERROR / curl failures**
-Check your internet connection and DNS resolution. If you're behind a proxy or firewall, ensure `curl` can reach `https://openrouter.ai`.
+One repo serves both tools:
 
-**Empty responses from a model**
-The model returned HTTP 200 but with no content. This occasionally happens under high load. The script retries automatically; if it persists, try a different model.
+| Path | What it is |
+|---|---|
+| `scripts/` | The runtime, shared by both: `query-models.sh` (fan-out), `query-models-bg.sh` + `moe-status.sh` (background runs), `validate-setup.sh`, `smoke-azure-foundry.sh`, `sync-cursor-skill.sh` |
+| `skills/moe-workflow/` | The Claude Code skill, plus `references/` shared with Cursor |
+| `cursor/moe-workflow/` | The Cursor skill (`scripts` and `references` are symlinks) |
+| `commands/moe.md`, `hooks/`, `.claude-plugin/` | Claude Code plugin wiring |
 
-**All 3 models fail (0/3)**
-Check the error details in each response, then:
-1. Verify your API key and network connectivity
-2. Verify model IDs in your settings file
-3. Wait and retry (may be temporary rate limiting)
-
-## Automatic Validation
-
-The Claude Code plugin includes a SessionStart hook (`scripts/validate-setup.sh`) that checks your setup each time Claude Code starts:
-
-- Required dependencies (`curl`, `jq`, `bc`) are installed
-- A settings file is found (same search order as above) or an env key is set
-- The selected provider has what it needs: an `sk-or-` key for OpenRouter; a key, an endpoint and `models:` for Azure AI Foundry
-
-If issues are found, a warning appears at session start. This check never blocks Claude from starting. Because SessionStart hooks do not fire reliably for every install type, both skills also run it at the start of each workflow.
+Full script reference: [`skills/moe-workflow/references/query-script-usage.md`](skills/moe-workflow/references/query-script-usage.md). Azure live check: `bash scripts/smoke-azure-foundry.sh` (exit 2 = skipped, no credentials).

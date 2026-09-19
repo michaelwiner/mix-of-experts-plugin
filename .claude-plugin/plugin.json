@@ -1,7 +1,7 @@
 {
   "name": "mix-of-experts",
-  "version": "0.1.0",
-  "description": "Feature development workflow powered by multi-model consultation. Orchestrates GPT, Gemini, Deepseek and other models as expert consultants at key decision points.",
+  "version": "0.2.0",
+  "description": "Feature development with multi-model consultation: GPT, Gemini, DeepSeek, Grok and others (via OpenRouter or Azure AI Foundry) act as expert consultants for clarifying, architecture and code review.",
   "author": {
     "name": "mwiner"
   }

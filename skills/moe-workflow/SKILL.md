@@ -1,7 +1,7 @@
 ---
 name: MoE Feature Development Workflow
 description: This skill should be used when the user asks to "build a feature with multiple models", "use mix of experts", "get opinions from different AI models", "moe workflow", "feature dev with expert consultation", invokes the "/moe" command, or wants to leverage multiple LLM providers (GPT, Gemini, Deepseek, Grok via OpenRouter or Azure AI Foundry) for architecture design or code review during feature development.
-version: 0.1.0
+version: 0.2.0
 ---
 
 # Mix of Experts Feature Development
