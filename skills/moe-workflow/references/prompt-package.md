@@ -10,8 +10,25 @@ headings**. A section with nothing to say states that explicitly (`None.`); neve
 ```markdown
 # MoE Prompt Package
 
-## 1. Goal
-One or two sentences: the outcome the user wants, in their terms.
+## 1. Product and goal
+**Goal:** one or two sentences — the outcome the user wants, in their terms.
+
+**Product (up to 150 words):** what this product is and who uses it; the one or two things it
+exists to get right; the domain rules and invariants any design must respect (units, ownership,
+money, safety, compliance); its scale and stage (side project or production, users, data size);
+and one or two sentences on how this request fits into it. Write it from `CLAUDE.md`,
+`AGENTS.md`, `README.md` and the code — not from guesses. Keep it under 150 words: experts
+read it every round, and padding crowds out the specifics in sections 5 and 6.
+
+Example: *"CardVault is a private ledger for one collector's Pokémon cards: photograph a card,
+a vision model reads it, it is matched to the exact PriceCharting product and priced, with a
+20% import markup. Getting the exact print right is the whole product — Base Set vs Base Set 2
+or Holo vs Reverse Holo differ 3x in price — so matching rules and their regression tests are
+the crown jewels. Money is integer cents end to end; markup is applied in exactly one place.
+Multi-user and invite-only: every data-layer call takes an owner, so a missing owner filter
+leaks another collector's collection. Small scale (~2k cards), one maintainer, deployed on
+Vercel with Postgres on Neon. This request adds tests for the API routes that enforce that
+ownership."*
 
 ## 2. Problem / feature
 What is broken or missing today, who hits it, and what "working" looks like.
@@ -78,4 +95,7 @@ log points at where the evidence landed; the evidence itself goes in sections 5�
   reworded, so the rounds stay comparable.
 - **No secrets.** Packages are written to disk (`~/.cache/moe-plugin/runs/`) and sent to
   third-party providers.
-- **Size.** Aim for under ~30k characters. Cut section 5 before cutting anything else.
+- **Size.** Aim for under ~30k characters. Cut section 5 before cutting anything else; keep the
+  product paragraph, it is what stops an expert proposing something the product cannot accept.
+- **Same product paragraph every round.** Write it once per feature and reuse it verbatim for
+  clarify, architecture and review, so answers stay comparable.

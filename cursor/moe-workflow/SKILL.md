@@ -49,6 +49,10 @@ into a settings file or a prompt package. Details: `references/settings-template
 1. **Understand.** Read the relevant code; ask the user only what the code cannot tell you.
 2. **Build the prompt package** (`references/prompt-package.md`): all nine sections, section 8
    is the big ask, section 4 is `Pending — clarify round in progress.` Write it to a file.
+   Section 1 carries the goal **and up to 150 words on the product**: what it is, who uses it,
+   the domain rules and invariants any design must respect, scale and stage, and how this ask
+   fits. Take it from `CLAUDE.md` / `AGENTS.md` / `README.md` and the code, never from guesses —
+   the experts know nothing else about the product. Reuse it verbatim in later rounds.
 3. **Clarify round:** `bash "$QUERY_BG" --settings-file "$S" --phase clarify --prompt-file "$PKG"`
 4. **Act on the clarify round** as director (`references/clarify-qa.md`). Experts return
    questions (decisions) and context requests (evidence that would sharpen their answer):
