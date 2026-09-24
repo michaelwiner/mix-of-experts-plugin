@@ -20,6 +20,7 @@ SETTINGS_FILE=""
 PHASE=""
 PROMPT_FILE=""
 NO_CACHE=false
+MODELS_OVERRIDE=""
 CONFIRM_COST=false
 ESTIMATE_ONLY=false
 
@@ -29,6 +30,7 @@ while [[ $# -gt 0 ]]; do
     --phase) PHASE="$2"; shift 2 ;;
     --prompt-file) PROMPT_FILE="$2"; shift 2 ;;
     --no-cache) NO_CACHE=true; shift ;;
+    --models) MODELS_OVERRIDE="$2"; shift 2 ;;
     --confirm-cost) CONFIRM_COST=true; shift ;;
     --estimate-only) ESTIMATE_ONLY=true; shift ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
@@ -39,18 +41,19 @@ done
 if [[ -z "$SETTINGS_FILE" || -z "$PHASE" || -z "$PROMPT_FILE" ]]; then
   echo "Usage: bash query-models.sh --settings-file <path> --phase <phase> --prompt-file <path> [--no-cache] [--confirm-cost] [--estimate-only]" >&2
   echo "  --settings-file  Path to .local.md settings file with YAML frontmatter" >&2
-  echo "  --phase          Consultation phase: architecture, review, clarify, or ad-hoc" >&2
+  echo "  --phase          Consultation phase: architecture, review, clarify, challenge, or ad-hoc" >&2
   echo "  --prompt-file    Path to file containing the prompt to send" >&2
   echo "  --no-cache       Skip cache, force fresh API calls" >&2
+  echo "  --models         Comma-separated models for this run, overriding the settings file" >&2
   echo "  --confirm-cost   Run even if the estimated cost is above max_cost_usd" >&2
   echo "  --estimate-only  Print the cost estimate and gate result, call no models" >&2
   exit 1
 fi
 
 case "$PHASE" in
-  architecture|review|clarify|ad-hoc) ;;
+  architecture|review|clarify|challenge|ad-hoc) ;;
   *)
-    echo "ERROR: Invalid phase '$PHASE'. Expected one of: architecture, review, clarify, ad-hoc" >&2
+    echo "ERROR: Invalid phase '$PHASE'. Expected one of: architecture, review, clarify, challenge, ad-hoc" >&2
     exit 1
     ;;
 esac
@@ -130,7 +133,8 @@ esac
 
 # Extract models list (comma-separated in settings). models_<phase> overrides models for that
 # round only, so e.g. the cheap clarify round can use cheaper models than architecture.
-MODELS_RAW=$(get_setting "models_${PHASE}")
+MODELS_RAW="$MODELS_OVERRIDE"
+[[ -z "$MODELS_RAW" ]] && MODELS_RAW=$(get_setting "models_${PHASE}")
 [[ -z "$MODELS_RAW" ]] && MODELS_RAW=$(get_setting models)
 if [[ -z "$MODELS_RAW" ]]; then
   if [[ "$PROVIDER" == "azure-foundry" ]]; then
@@ -407,6 +411,28 @@ State HIGH, MEDIUM, or LOW confidence that, with these questions answered and th
 Every section is required.
 
 IMPORTANT: Your response is limited to ${MAX_TOKENS} tokens. Be concise."
+    ;;
+  challenge)
+    # Deliberately adversarial: studies of LLM panels find that soft framing ("critique this",
+    # "be a sceptic") produces agreement dressed up as nuance, while an explicit instruction to
+    # oppose produces real objections. The director runs this on a design it is about to build.
+    SYSTEM_PROMPT="You are a senior engineer assigned the role of opponent. A design has been chosen and is described in the package. You must oppose it. Your job is not to be balanced: assume the design is the wrong choice and make the strongest honest case against it, then show how it fails in practice. Do not hedge, do not restate its strengths, and do not propose a compromise unless the compromise is your actual recommendation. Never invent facts about the codebase; argue from what the package says and from how systems like this fail. Structure your response with these exact sections:
+
+## Summary
+2-3 sentences: the single strongest reason this design should not be built as described, and what you would do instead.
+
+## The Case Against
+The argument that this is the wrong choice. Attack the reasoning, the assumptions (including section 9), and the fit to the constraints. Prefer concrete failure paths over general concerns, and name the specific alternative you would choose instead and why it is better. Mark any point that depends on information the package does not contain.
+
+## Post-Mortem
+Six months have passed: the design shipped and failed. Write the short post-mortem. What broke, in what order, what the symptoms were, who noticed and how, and what the team wishes it had done differently. Be specific about the mechanism (load, data volume, concurrency, migration, cost, operational burden, a wrong assumption). This is about execution and consequences, not about the choice itself.
+
+## Confidence
+State HIGH, MEDIUM, or LOW confidence that these objections are decisive, with a one-sentence justification. If you would ultimately still build the design as described, say so plainly here. Then name the single piece of missing information that would most change this critique.
+
+Every section is required.
+
+IMPORTANT: Your response is limited to ${MAX_TOKENS} tokens. Be concise and prioritize the most valuable insights."
     ;;
   ad-hoc)
     SYSTEM_PROMPT="You are a senior software engineer providing expert consultation. Analyze the question or problem provided and give a thorough, well-reasoned response. Structure your response with these exact sections:

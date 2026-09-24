@@ -120,11 +120,15 @@ Architecture round ─ each expert proposes a design through its own lens
 Synthesis ─ consensus, disagreements, unique ideas, risks → you pick an approach
    │
    ▼
+Challenge round ─ one expert is ordered to argue the design is wrong, and to
+   │               write the post-mortem of it failing six months from now
+   ▼
 Implementation → optional Review round on the diff → summary
 ```
 
 - **Experts see only the brief.** They have no access to your repo and no memory between rounds. The director writes a nine-section *prompt package* (product and goal, problem, constraints, Q&A, code context, current state, success criteria, the ask, assumptions); see `skills/moe-workflow/references/prompt-package.md`. Section 1 carries up to 150 words on what the product is, the rules any design must respect, and how the request fits — taken from your `CLAUDE.md` / `AGENTS.md` / `README.md` and the code, so advice that would break a product rule gets caught in the round rather than by you.
 - **Different lenses.** By default each expert argues from one professional style: `ship` (pragmatic startup engineer), `scale` (staff/SRE), `simplify` (principal maintainer).
+- **Agreement is not evidence.** Panels converge: research on multi-agent LLM deliberation finds consensus is an unreliable proxy for quality. So before you build, one expert is *ordered* to oppose the chosen design and to write its post-mortem — soft instructions like "critique this" measurably produce agreement dressed up as nuance.
 - **Runs in the background.** Rounds take a minute or two and run as detached jobs, so an interrupted agent turn doesn't lose them.
 - **Honest failures.** An answer cut off by the token limit is retried with a bigger budget and flagged `TRUNCATED` if it's still cut off; a failed model is reported as failed, never silently dropped.
 - **Optional web search** (OpenRouter): let experts check current facts such as versions, deprecations and pricing, at most 3 searches each by default, with cited sources. Off by default.

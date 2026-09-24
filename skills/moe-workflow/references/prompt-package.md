@@ -65,6 +65,7 @@ What the lead is assuming but has not verified. Experts may challenge these.
 |---|---|
 | `clarify` | Exactly: `Pending — clarify round in progress.` |
 | `architecture` | Attributed Q&A and context log from the clarify round (format below), or exactly `No clarifying questions or context requests from any expert.` when every expert wrote `None` for both |
+| `challenge` | Keep the architecture round's Q&A; add the chosen design itself to section 6 and point section 8 at it (below) |
 | `ad-hoc` / `review` | Any relevant Q&A, or `None.` |
 
 Attributed Q&A format:
@@ -85,6 +86,19 @@ Attributed Q&A format:
 Merge duplicate questions and requests, and list every expert who asked. Keep each answer to
 10 lines or fewer. Mark answers that came from the human as `confirmed by user`. The context
 log points at where the evidence landed; the evidence itself goes in sections 5–6.
+
+## The challenge round
+
+Run after an approach is chosen and before it is built. Reuse the architecture package with two
+edits:
+
+- **Section 6** gains the chosen design, in enough detail to attack: the approach, the main
+  components, and why it was picked over the alternatives.
+- **Section 8** becomes: `Argue against the design in section 6. Assume it is the wrong choice.`
+
+Section 1 (product), 2, 3, 5, 7 and 9 stay as they were: the opponent needs the same facts and
+the same constraints, or it will object to things that were never on the table. Send it to a
+model that did **not** author the chosen design, so it is not defending its own proposal.
 
 ## Rules
 

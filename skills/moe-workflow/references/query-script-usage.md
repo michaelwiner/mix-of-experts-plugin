@@ -15,7 +15,7 @@ Locations: `${CLAUDE_PLUGIN_ROOT}/scripts/` under Claude Code, `~/.cursor/skills
 ```bash
 bash query-models.sh \
   --settings-file <path> \
-  --phase <architecture|review|clarify|ad-hoc> \
+  --phase <architecture|review|clarify|challenge|ad-hoc> \
   --prompt-file <path> \
   [--no-cache] [--confirm-cost] [--estimate-only]
 ```
@@ -23,9 +23,10 @@ bash query-models.sh \
 | Argument | Required | Description |
 |----------|----------|-------------|
 | `--settings-file` | Yes | `.local.md` settings file (see `settings-template.md`). May be absent on disk for OpenRouter when `OPENROUTER_API_KEY` is set |
-| `--phase` | Yes | `architecture`, `review`, `clarify`, or `ad-hoc`. Anything else exits 1 |
+| `--phase` | Yes | `architecture`, `review`, `clarify`, `challenge`, or `ad-hoc`. Anything else exits 1 |
 | `--prompt-file` | Yes | The prompt package (see `prompt-package.md`) |
 | `--no-cache` | No | Skip the response cache and force fresh API calls |
+| `--models` | No | Comma-separated models for this run, overriding `models` / `models_<phase>`. Used to send the challenge round to a model that did not write the design |
 | `--confirm-cost` | No | Run even if the cost estimate is above `max_cost_usd` (only after the user agreed) |
 | `--estimate-only` | No | Print the cost estimate and gate result, call no models |
 
@@ -38,6 +39,7 @@ Each phase sets a system prompt that requires specific `##` sections:
 - **`clarify`**: `## Summary`, `## Clarifying Questions` (decisions only the operator/user can make; up to 3, at most 5 if essential; exactly `None` if nothing needs asking), `## Context Requests` (up to 3 pieces of evidence the operator should add to the package, each with why it would change the recommendation and where to find it; exactly `None` if the package is sufficient), `## Confidence`. No architecture is produced in this phase.
 - **`architecture`**: `## Summary`, `## Key Claims` (numbered), `## Implementation Detail`, `## Risks and Trade-offs`, `## Confidence` (ends with the single piece of missing information that would most change the proposal)
 - **`review`**: `## Summary`, `## Critical Issues`, `## Warnings`, `## Suggestions` (each `None identified.` if empty), `## Confidence`
+- **`challenge`**: `## Summary`, `## The Case Against` (why this design is the wrong choice, and what to build instead), `## Post-Mortem` (six months on, it shipped and failed: what broke and why), `## Confidence` (including whether the opponent would build it anyway). The expert is instructed to oppose, not to weigh both sides: soft framing ("critique this") measurably produces agreement dressed as nuance
 - **`ad-hoc`**: `## Summary`, `## Analysis`, `## Alternatives Considered`, `## Confidence` (ends with the most valuable missing information, as for architecture)
 
 ### Providers
