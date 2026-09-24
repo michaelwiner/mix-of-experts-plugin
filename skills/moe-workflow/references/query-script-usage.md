@@ -101,11 +101,11 @@ truncated answer.
 3. `SUMMARY: N succeeded[ (T truncated, C cached)], F failed, M total[ | Cost: $X]`
 
 Response files are named after the model with `/` replaced by `_`
-(`openai_gpt-5.6-sol.md`, `grok-4.6-expert.md`).
+(`openai_gpt-6-sol.md`, `grok-4.6-expert.md`).
 
 Successful response:
 ```markdown
-# Response from openai/gpt-5.6-sol
+# Response from openai/gpt-6-sol
 
 **Provider**: openrouter
 **Style**: ship
@@ -120,7 +120,7 @@ Successful response:
 
 Error response:
 ```markdown
-# ERROR from openai/gpt-5.6-sol
+# ERROR from openai/gpt-6-sol
 
 **HTTP Status**: 429
 **Attempts**: 2

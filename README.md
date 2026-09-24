@@ -144,13 +144,13 @@ Settings live in the YAML front matter of a `.local.md` file. The agent uses the
 3. `<your project>/.claude/mix-of-experts-plugin.local.md`
 4. `~/.claude/mix-of-experts-plugin.local.md`
 
-With OpenRouter and `OPENROUTER_API_KEY` set, **no file is needed**. The defaults are GPT-5.6 Sol, Gemini 3.8 Flash and Grok 4.6: three vendors, about $0.15–0.35 per round with web search (the upper end when an answer is long enough to need a retry with a bigger token budget).
+With OpenRouter and `OPENROUTER_API_KEY` set, **no file is needed**. The defaults are GPT-6 Sol, Gemini 3.8 Flash and Grok 4.7 — three vendors, about $0.03–0.25 per round with web search — plus GPT-6 Luna alone for the challenge round (~$0.002).
 
 **Recommended (OpenRouter):**
 
 ```markdown
 ---
-models: openai/gpt-5.6-sol,google/gemini-3.8-flash,x-ai/grok-4.6
+models: openai/gpt-6-sol,google/gemini-3.8-flash,x-ai/grok-4.7
 web_search: architecture,review
 max_cost_usd: 0.5
 ---
@@ -171,7 +171,7 @@ On Azure, `models` are **your deployment names**, not model IDs. Use the resourc
 
 ```markdown
 ---
-models: openai/gpt-5.6-sol,google/gemini-3.8-flash,x-ai/grok-4.6
+models: openai/gpt-6-sol,google/gemini-3.8-flash,x-ai/grok-4.7
 models_clarify: openai/gpt-5.6-luna,google/gemini-3.8-flash,z-ai/glm-5.3
 ---
 ```
@@ -183,8 +183,8 @@ Add `*.local.md` settings to `.gitignore`. Keys belong in environment variables,
 | Field | Default | Description |
 |-------|---------|-------------|
 | `provider` | `openrouter` | `openrouter` or `azure-foundry` |
-| `models` | GPT-5.6 Sol, Gemini 3.8 Flash, Grok 4.6 | Comma-separated OpenRouter IDs, or Foundry deployment names (required on Azure) |
-| `models_<phase>` | -- | Per-round override, e.g. `models_clarify:`. Phases: `clarify`, `architecture`, `review`, `ad-hoc` |
+| `models` | GPT-6 Sol, Gemini 3.8 Flash, Grok 4.7 | Comma-separated OpenRouter IDs, or Foundry deployment names (required on Azure) |
+| `models_<phase>` | `challenge`: `openai/gpt-6-luna` | Per-round override, e.g. `models_clarify:`. Phases: `clarify`, `architecture`, `review`, `challenge`, `ad-hoc`. The challenge round defaults to one cheap opponent (~$0.002) |
 | `fallback_models` | -- | Used when a primary model fails after its retries |
 | `styles` | `ship,scale,simplify` | One professional lens per expert, in model order; `off` to disable |
 | `web_search` | `off` | `on`, `off`, or rounds (e.g. `architecture,review`). OpenRouter only |

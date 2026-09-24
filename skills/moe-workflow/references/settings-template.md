@@ -63,7 +63,7 @@ retries: 1
 ```markdown
 ---
 provider: openrouter
-models: openai/gpt-5.6-sol,google/gemini-3.8-flash,x-ai/grok-4.6
+models: openai/gpt-6-sol,google/gemini-3.8-flash,x-ai/grok-4.7
 fallback_models: meta-llama/llama-3.3-70b,mistralai/mistral-large
 max_tokens: 8000
 temperature: 0.3
@@ -83,10 +83,10 @@ Any markdown content below the frontmatter is ignored by the script.
 | Field | Required | Default | Description |
 |-------|----------|---------|-------------|
 | `provider` | No | `openrouter` | `openrouter` or `azure-foundry` |
-| `models` | Azure: yes | OpenRouter: `openai/gpt-5.6-sol,google/gemini-3.8-flash,x-ai/grok-4.6` | Comma-separated. OpenRouter IDs (`provider/model`) or Foundry deployment names |
+| `models` | Azure: yes | OpenRouter: `openai/gpt-6-sol,google/gemini-3.8-flash,x-ai/grok-4.7` | Comma-separated. OpenRouter IDs (`provider/model`) or Foundry deployment names |
 | `azure_endpoint` | Azure: yes, unless `AZURE_OPENAI_ENDPOINT` is set | - | Foundry resource URL; a trailing `/` is stripped |
 | `openrouter_api_key` / `azure_api_key` | No | - | Fallbacks for the env vars; prefer the env |
-| `models_<phase>` | No | - | Overrides `models` for one round, e.g. `models_clarify:` with cheaper models. Phases: `clarify`, `architecture`, `review`, `ad-hoc` |
+| `models_<phase>` | No | `challenge`: `openai/gpt-6-luna` | Overrides `models` for one round, e.g. `models_clarify:` with cheaper models. Phases: `clarify`, `architecture`, `review`, `challenge`, `ad-hoc`. The challenge round defaults to a single cheap opponent, since one objection is the point, not a vote |
 | `fallback_models` | No | - | Same format as `models`; used when a primary model fails after all retries |
 | `styles` | No | `ship,scale,simplify` | Professional lens per expert, assigned by model position and rotating. Values: `ship`, `scale`, `simplify`, `neutral`, or `off` |
 | `web_search` | No | `off` | `on`, `off`, or phases, e.g. `architecture,review`. Lets experts search the web (OpenRouter only) |
@@ -147,14 +147,14 @@ web_search_max: 3
 
 ```markdown
 ---
-models: openai/gpt-5.6-sol,google/gemini-3.8-flash,x-ai/grok-4.6
+models: openai/gpt-6-sol,google/gemini-3.8-flash,x-ai/grok-4.7
 models_clarify: openai/gpt-5.6-luna,google/gemini-3.8-flash,z-ai/glm-5.3
 ---
 ```
 
 ## Finding model IDs
 
-- OpenRouter: https://openrouter.ai/models (e.g. `openai/gpt-5.6-sol`, `google/gemini-3.8-flash`)
+- OpenRouter: https://openrouter.ai/models (e.g. `openai/gpt-6-sol`, `google/gemini-3.8-flash`)
 - Foundry: the **Deployments** page of your Azure AI Foundry project
 
 ## Example OpenRouter combinations
@@ -163,7 +163,7 @@ Measured September 2026 (coding score from BenchLM; cost per expert per round at
 
 **Balanced (default)**, about $0.15–0.35 per round:
 ```
-models: openai/gpt-5.6-sol,google/gemini-3.8-flash,x-ai/grok-4.6
+models: openai/gpt-6-sol,google/gemini-3.8-flash,x-ai/grok-4.7
 ```
 
 **Budget**, about $0.05 per round:
@@ -173,7 +173,7 @@ models: openai/gpt-5.6-luna,google/gemini-3.8-flash,z-ai/glm-5.3
 
 **Premium**, about $0.45 per round (raise `max_cost_usd`):
 ```
-models: openai/gpt-6-astra,google/gemini-3.8-flash,x-ai/grok-4.6
+models: openai/gpt-6-astra,google/gemini-3.8-flash,x-ai/grok-4.7
 ```
 
 Prefer different vendors: models from one family tend to make the same mistakes. Heavy reasoning

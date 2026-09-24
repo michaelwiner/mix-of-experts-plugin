@@ -142,7 +142,13 @@ if [[ -z "$MODELS_RAW" ]]; then
     echo "ERROR: provider azure-foundry requires 'models:' (or 'models_${PHASE}:') with Foundry deployment names in the settings file." >&2
     exit 1
   fi
-  MODELS_RAW="openai/gpt-5.6-sol,google/gemini-3.8-flash,x-ai/grok-4.6"
+  if [[ "$PHASE" == "challenge" ]]; then
+    # The challenge round wants one opponent, not a panel: a second critic mostly repeats the
+    # first, and the value is the objection, not a vote. A cheap model does this well.
+    MODELS_RAW="openai/gpt-6-luna"
+  else
+    MODELS_RAW="openai/gpt-6-sol,google/gemini-3.8-flash,x-ai/grok-4.7"
+  fi
 fi
 
 # Extract optional fields (use defaults if no frontmatter or field missing)
