@@ -62,8 +62,13 @@ into a settings file or a prompt package. Details: `references/settings-template
 6. **Synthesize** with `references/synthesis-templates.md`: consensus, disagreements (and
    which argument is stronger), unique insights, risks, and the missing information experts
    named in `## Confidence` that would most change the decision.
-7. **Stop for approval.** Present the synthesis and your recommendation; wait for the user.
-8. **Optional review round** after implementing: package with the diff, `--phase review`.
+7. **Challenge round** (after an approach is chosen, before building): add the chosen design to
+   section 6, point section 8 at it, and run `--phase challenge` with `--models` set to one model
+   that did not write that design. It is instructed to oppose: read `## The Case Against` and the
+   `## Post-Mortem`, say which objections land, and fold them in. Agreement in the earlier rounds
+   is the reason to run this, not a reason to skip it.
+8. **Stop for approval.** Present the synthesis, the challenge, and your recommendation; wait for the user.
+9. **Optional review round** after implementing: package with the diff, `--phase review`.
 
 `--phase ad-hoc` takes the same full package for one-off questions outside this flow.
 

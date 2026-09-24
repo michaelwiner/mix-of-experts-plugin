@@ -1,7 +1,7 @@
 ---
 name: MoE Feature Development Workflow
 description: This skill should be used when the user asks to "build a feature with multiple models", "use mix of experts", "get opinions from different AI models", "moe workflow", "feature dev with expert consultation", invokes the "/moe" command, or wants to leverage multiple LLM providers (GPT, Gemini, Deepseek, Grok via OpenRouter or Azure AI Foundry) for architecture design or code review during feature development.
-version: 0.2.1
+version: 0.2.2
 ---
 
 # Mix of Experts Feature Development
@@ -106,6 +106,23 @@ This is the primary MoE consultation point. Each external model brings a differe
 
 5. Present the completed synthesis report to the user
 6. Ask the user which approach to pursue before proceeding to implementation
+
+### Phase 4b: Challenge (MoE Consultation)
+
+**Goal**: hear the strongest case against the design before building it.
+
+Three experts answering the same question tend to agree, and agreement is not evidence. One expert is therefore ordered to oppose the chosen design (`--phase challenge`).
+
+1. Add the chosen design to section 6 of the package and point section 8 at it (`references/prompt-package.md`)
+2. Run the round with **one** model that did not author the chosen design:
+   ```bash
+   bash "$QUERY_BG" --settings-file "$S" --phase challenge --prompt-file "$PKG" --models "<a model that did not write the design>"
+   ```
+3. Read `## The Case Against` (is the choice wrong?) and `## Post-Mortem` (how does it fail in practice?), and check `## Confidence` for whether the opponent would build it anyway
+4. Present to the user: each objection, whether you think it lands, and what you would change. An objection that rests on information the package lacks is a signal to add that information, not to dismiss it
+5. If an objection is decisive, return to Phase 4 with it recorded in section 4; otherwise continue with the design, noting the risks the post-mortem raised
+
+**Do not skip this because the experts agreed.** Agreement is the reason to run it.
 
 ### Phase 5: Implementation
 
