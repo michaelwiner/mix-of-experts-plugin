@@ -138,7 +138,7 @@ if [[ -z "$MODELS_RAW" ]]; then
     echo "ERROR: provider azure-foundry requires 'models:' (or 'models_${PHASE}:') with Foundry deployment names in the settings file." >&2
     exit 1
   fi
-  MODELS_RAW="openai/gpt-5.2,google/gemini-3-flash-preview,deepseek/deepseek-v3.2-20251201"
+  MODELS_RAW="openai/gpt-5.6-sol,google/gemini-3.8-flash,x-ai/grok-4.6"
 fi
 
 # Extract optional fields (use defaults if no frontmatter or field missing)
@@ -157,7 +157,7 @@ MAX_COST_USD=$(get_setting max_cost_usd)
 [[ -z "$TIMEOUT" ]] && TIMEOUT=300
 [[ -z "$MAX_RETRIES" ]] && MAX_RETRIES=1
 [[ -z "$STYLES_RAW" ]] && STYLES_RAW="ship,scale,simplify"
-[[ -z "$MAX_COST_USD" ]] && MAX_COST_USD=1
+[[ -z "$MAX_COST_USD" ]] && MAX_COST_USD=0.5
 [[ -z "$WEB_MAX" ]] && WEB_MAX=3
 # Exa is the default engine: it honours max_uses, reports the search count, and costs a flat
 # ~$0.007 per search. Native engines may ignore the cap in reporting and cost several times more.
@@ -684,7 +684,12 @@ ${RETRY_ADDENDUM//__ATTEMPT__/$((ATTEMPT + 1))}"
       fi
 
       # Validate response has actual content
-      CONTENT=$(echo "$BODY" | jq -r '.choices[0].message.content // empty')
+      # With web search, models often narrate before calling the tool ("I'll verify X...") and
+      # the answer is concatenated onto that sentence, leaving "...X.## Summary" mid-line where
+      # neither the director nor a grep sees the heading. Put known section headings back on
+      # their own line.
+      CONTENT=$(echo "$BODY" | jq -r '.choices[0].message.content // empty
+        | gsub("(?<pre>[^\n])(?<h>## (Summary|Key Claims|Implementation Detail|Risks and Trade-offs|Clarifying Questions|Context Requests|Critical Issues|Warnings|Suggestions|Analysis|Alternatives Considered|Confidence)\\b)"; "\(.pre)\n\n\(.h)")')
 
       if [[ -z "$CONTENT" ]]; then
         # 200 but empty content — treat as failure

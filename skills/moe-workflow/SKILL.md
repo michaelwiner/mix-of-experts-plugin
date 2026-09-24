@@ -1,7 +1,7 @@
 ---
 name: MoE Feature Development Workflow
 description: This skill should be used when the user asks to "build a feature with multiple models", "use mix of experts", "get opinions from different AI models", "moe workflow", "feature dev with expert consultation", invokes the "/moe" command, or wants to leverage multiple LLM providers (GPT, Gemini, Deepseek, Grok via OpenRouter or Azure AI Foundry) for architecture design or code review during feature development.
-version: 0.2.0
+version: 0.2.1
 ---
 
 # Mix of Experts Feature Development
@@ -70,6 +70,8 @@ STATUS="${CLAUDE_PLUGIN_ROOT}/scripts/moe-status.sh"
 2. Identify underspecified aspects: edge cases, error handling, integration points, scope, design preferences, performance needs
 3. Present your own questions to the user in a clear, organized list and wait for answers
 4. Build the prompt package per `references/prompt-package.md`: all nine sections, section 8 is the explicit ask, section 4 is exactly `Pending — clarify round in progress.` Write it to a file
+   - Section 1 needs the goal **and up to 150 words on the product**: what it is, who uses it, the domain rules and invariants any design must respect, its scale and stage, and how this ask fits. Read `CLAUDE.md`, `AGENTS.md` and `README.md` (and the code) for this rather than guessing — experts know nothing about the product beyond what you write
+   - Reuse that same product paragraph verbatim in every later round
 5. Run the expert clarify round (see **Running a consultation** below) with `--phase clarify`
 6. Act as director, following `references/clarify-qa.md`. Experts return both **Clarifying Questions** (decisions) and **Context Requests** (evidence that would sharpen their answer, with where to find it):
    - Answer questions in 10 lines or fewer each; escalate to the user only what you cannot answer from evidence (in one batch)

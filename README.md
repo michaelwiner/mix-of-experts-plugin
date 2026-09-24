@@ -6,7 +6,7 @@ Your agent (Claude Code or Cursor) acts as the **director**. It writes a self-co
 
 - **Claude Code**: installs as a plugin with a `/moe` command
 - **Cursor**: installs as a skill; ask for "mix of experts" in chat
-- **Cost**: typically $0.01–$0.10 per round on OpenRouter. It's shown after every run, and a run estimated above $1 stops and asks first
+- **Cost**: typically $0.15–$0.35 per round on OpenRouter with the default models. It's shown after every run, and a run estimated above $0.50 stops and asks first
 
 ---
 
@@ -123,7 +123,7 @@ Synthesis ─ consensus, disagreements, unique ideas, risks → you pick an appr
 Implementation → optional Review round on the diff → summary
 ```
 
-- **Experts see only the brief.** They have no access to your repo. The director writes a nine-section *prompt package* (goal, problem, constraints, Q&A, code context, current state, success criteria, the ask, assumptions); see `skills/moe-workflow/references/prompt-package.md`.
+- **Experts see only the brief.** They have no access to your repo and no memory between rounds. The director writes a nine-section *prompt package* (product and goal, problem, constraints, Q&A, code context, current state, success criteria, the ask, assumptions); see `skills/moe-workflow/references/prompt-package.md`. Section 1 carries up to 150 words on what the product is, the rules any design must respect, and how the request fits — taken from your `CLAUDE.md` / `AGENTS.md` / `README.md` and the code, so advice that would break a product rule gets caught in the round rather than by you.
 - **Different lenses.** By default each expert argues from one professional style: `ship` (pragmatic startup engineer), `scale` (staff/SRE), `simplify` (principal maintainer).
 - **Runs in the background.** Rounds take a minute or two and run as detached jobs, so an interrupted agent turn doesn't lose them.
 - **Honest failures.** An answer cut off by the token limit is retried with a bigger budget and flagged `TRUNCATED` if it's still cut off; a failed model is reported as failed, never silently dropped.
@@ -140,15 +140,15 @@ Settings live in the YAML front matter of a `.local.md` file. The agent uses the
 3. `<your project>/.claude/mix-of-experts-plugin.local.md`
 4. `~/.claude/mix-of-experts-plugin.local.md`
 
-With OpenRouter and `OPENROUTER_API_KEY` set, **no file is needed**. The defaults are GPT-5.2, Gemini 3 Flash and DeepSeek V3.2.
+With OpenRouter and `OPENROUTER_API_KEY` set, **no file is needed**. The defaults are GPT-5.6 Sol, Gemini 3.8 Flash and Grok 4.6: three vendors, about $0.15–0.35 per round with web search (the upper end when an answer is long enough to need a retry with a bigger token budget).
 
 **Recommended (OpenRouter):**
 
 ```markdown
 ---
-models: openai/gpt-5.2,google/gemini-3-flash-preview,deepseek/deepseek-v3.2-20251201
+models: openai/gpt-5.6-sol,google/gemini-3.8-flash,x-ai/grok-4.6
 web_search: architecture,review
-max_cost_usd: 1
+max_cost_usd: 0.5
 ---
 ```
 
@@ -167,8 +167,8 @@ On Azure, `models` are **your deployment names**, not model IDs. Use the resourc
 
 ```markdown
 ---
-models: openai/gpt-5.2,google/gemini-3-pro-preview,deepseek/deepseek-v3.2-20251201
-models_clarify: google/gemini-3-flash-preview,deepseek/deepseek-v3.2-20251201
+models: openai/gpt-5.6-sol,google/gemini-3.8-flash,x-ai/grok-4.6
+models_clarify: openai/gpt-5.6-luna,google/gemini-3.8-flash,z-ai/glm-5.3
 ---
 ```
 
@@ -179,14 +179,14 @@ Add `*.local.md` settings to `.gitignore`. Keys belong in environment variables,
 | Field | Default | Description |
 |-------|---------|-------------|
 | `provider` | `openrouter` | `openrouter` or `azure-foundry` |
-| `models` | GPT-5.2, Gemini 3 Flash, DeepSeek V3.2 | Comma-separated OpenRouter IDs, or Foundry deployment names (required on Azure) |
+| `models` | GPT-5.6 Sol, Gemini 3.8 Flash, Grok 4.6 | Comma-separated OpenRouter IDs, or Foundry deployment names (required on Azure) |
 | `models_<phase>` | -- | Per-round override, e.g. `models_clarify:`. Phases: `clarify`, `architecture`, `review`, `ad-hoc` |
 | `fallback_models` | -- | Used when a primary model fails after its retries |
 | `styles` | `ship,scale,simplify` | One professional lens per expert, in model order; `off` to disable |
 | `web_search` | `off` | `on`, `off`, or rounds (e.g. `architecture,review`). OpenRouter only |
 | `web_search_max` | `3` | Max searches per expert per call (enforced by OpenRouter) |
 | `web_search_engine` | `exa` | `exa` (~$0.007/search), `auto`, `native`, `parallel`, `perplexity` |
-| `max_cost_usd` | `1` | A run estimated above this asks for confirmation first (OpenRouter) |
+| `max_cost_usd` | `0.5` | A run estimated above this asks for confirmation first (OpenRouter) |
 | `max_tokens` | `8000` | Max answer length per expert (includes reasoning tokens on reasoning models) |
 | `temperature` | `0.3` | 0.0–2.0. Not sent to Azure (its reasoning models reject it) |
 | `timeout` | `300` | Seconds per API call |

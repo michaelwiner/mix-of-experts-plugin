@@ -68,7 +68,7 @@ URLs at the end. Web search settings are part of the cache key.
 
 - **Before the run (OpenRouter):** the script prices one full-length (`max_tokens`) answer per
   uncached model from OpenRouter's public model list and prints `Estimated max cost: $X`.
-  If that is above `max_cost_usd` (default `$1`), it prints
+  If that is above `max_cost_usd` (default `$0.50`), it prints
   `COST_GATE: estimated $X exceeds max_cost_usd $Y ...` and exits **3** without calling any
   model. Ask the user; re-run with `--confirm-cost` only if they agree.
 - **After the run:** the real cost comes from each response's `usage.cost`, including paid
@@ -99,11 +99,11 @@ truncated answer.
 3. `SUMMARY: N succeeded[ (T truncated, C cached)], F failed, M total[ | Cost: $X]`
 
 Response files are named after the model with `/` replaced by `_`
-(`openai_gpt-5.2.md`, `grok-4.6-expert.md`).
+(`openai_gpt-5.6-sol.md`, `grok-4.6-expert.md`).
 
 Successful response:
 ```markdown
-# Response from openai/gpt-5.2
+# Response from openai/gpt-5.6-sol
 
 **Provider**: openrouter
 **Style**: ship
@@ -118,7 +118,7 @@ Successful response:
 
 Error response:
 ```markdown
-# ERROR from openai/gpt-5.2
+# ERROR from openai/gpt-5.6-sol
 
 **HTTP Status**: 429
 **Attempts**: 2
