@@ -1,7 +1,7 @@
 ---
 name: MoE Feature Development Workflow
 description: This skill should be used when the user asks to "build a feature with multiple models", "use mix of experts", "get opinions from different AI models", "moe workflow", "feature dev with expert consultation", invokes the "/moe" command, or wants to leverage multiple LLM providers (GPT, Gemini, Deepseek, Grok via OpenRouter or Azure AI Foundry) for architecture design or code review during feature development.
-version: 0.2.3
+version: 0.3.0
 ---
 
 # Mix of Experts Feature Development
@@ -189,6 +189,25 @@ Outside of Phases 3, 4 and 6, consult external models when:
 
 Use `--phase "ad-hoc"` with a full prompt package.
 
+## Swarm Mode (optional)
+
+**Goal**: a cheap alternative to the panel. `--swarm` replaces the three panel experts with ten seats (default: 10× `openai/gpt-6-luna`, about $0.03 per round, against roughly $0.10–0.20 for the panel) that each answer the round's full prompt. Each seat plays one character with one angle: `security`, `operations`, `data`, `performance`, `simplicity`, `product`, `testing`, `cost`, `rollout`, `contrarian`.
+
+**What the evidence says.** On two hand-graded architecture benchmarks (23 and 18 rubric items, two independent judges) the swarm matched or slightly beat the panel at about a quarter of the cost. But ten Luna seats *without* angles scored the same, and a single Luna was close behind: the benchmarks were near their ceiling, and the angles add no measurable coverage. Offer the swarm when cost matters or the user asks for it; keep the panel as the default. A swarm of one model shares that model's blind spots, so several seats agreeing is not verification.
+
+1. **Run one round** on `clarify`, `architecture`, `review` or `ad-hoc`, with the same nine-section package:
+   ```bash
+   bash "$QUERY_BG" --settings-file "$S" --phase review --swarm --prompt-file "$PKG"
+   ```
+   Files are numbered by seat: `03_openai_gpt-6-luna__data.md`.
+2. **Merge.** Read every seat's answer. Merge duplicate findings into one numbered list and note which angles raised each. Keep findings only one seat raised.
+3. **Verify.** Check the findings yourself against the code, highest severity first; you have the repository, the seats did not. Drop what the code refutes and say why. There is no vote round.
+4. **Present** with the **Swarm Synthesis Template** (`references/synthesis-templates.md`), stating for each finding whether you confirmed it, refuted it, or could not check it.
+
+**Speed.** All seats run at once. Once 80% of them have answered, each remaining seat gets as long as that took plus 30 seconds, and is then dropped (`swarm_quorum`, `swarm_grace`). Reasoning effort stays at the provider default; `swarm_reasoning_effort` can lower it (in one test `low` cut a 10-seat swarm from 81 s to 39 s), but its effect on answer quality has not been measured, so do not change it unless the user asks.
+
+The settings `swarm_size` (default 10, at most one seat per angle), `swarm_angles`, `models_swarm` (a shorter list is cycled across the seats, e.g. a mix of cheap models for less correlated errors), `swarm_quorum`, `swarm_grace` and `swarm_reasoning_effort` are described in `references/settings-template.md`.
+
 ## Running a consultation
 
 Prefer the background runner: a fan-out takes minutes, and a detached job survives an interrupted turn.
@@ -206,6 +225,8 @@ bash "$STATUS" --run-id "<RUN_ID>"   # exit 0 = done, 2 = running, 1 = failed
 Poll while the status exits 2. On 0, read every `RESPONSES_DIR/*.md`. On 1, read `FAIL_REASON` and `RUN_DIR/stdout.log`; a run whose process died without a summary is marked `orphaned`.
 
 **Cost gate.** If the launch exits **3** (`COST_GATE: estimated $X exceeds max_cost_usd ...`), nothing ran. Tell the user the estimate and ask; re-run with `--confirm-cost` only if they agree. After every run, report the `Cost:` from the `SUMMARY` line.
+
+**Late members.** Every run waits for all members only until a quorum has answered (2 of 3 for a panel, 80% of a swarm); each remaining member then gets as long as the quorum took plus a grace period (60 s for a panel, 30 s for a swarm), and is dropped. A dropped member's file starts with `# LATE` and the `SUMMARY` line says `N dropped late`. Treat it like a failed model in the synthesis (say it was dropped, and that the answer rests on the others); it is not an error to fix.
 
 **Truncated answers.** A response marked `**Status**: TRUNCATED` was cut off even after a retry with double the tokens. Use what it contains, but treat its missing sections as absent and say so in the synthesis.
 

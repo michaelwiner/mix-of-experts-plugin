@@ -131,6 +131,7 @@ Implementation → optional Review round on the diff → summary
 - **Agreement is not evidence.** Panels converge: research on multi-agent LLM deliberation finds consensus is an unreliable proxy for quality. So before you build, one expert is *ordered* to oppose the chosen design and to write its post-mortem — soft instructions like "critique this" measurably produce agreement dressed up as nuance.
 - **Runs in the background.** Rounds take a minute or two and run as detached jobs, so an interrupted agent turn doesn't lose them.
 - **Honest failures.** An answer cut off by the token limit is retried with a bigger budget and flagged `TRUNCATED` if it's still cut off; a failed model is reported as failed, never silently dropped.
+- **Swarm mode** (optional): `--swarm` swaps the three-model panel for ten cheap seats (10× GPT-6 Luna by default, about $0.03 per round), each playing one character with one angle — security, operations, data, performance, simplicity, product, testing, cost, rollout, and a contrarian. On our architecture benchmarks it matched the panel at about a quarter of the cost; ten seats without angles did as well, so treat it as the cheap option, not a better one. Ask for it in plain words: *"run a swarm review on this diff"*.
 - **Optional web search** (OpenRouter): let experts check current facts such as versions, deprecations and pricing, at most 3 searches each by default, with cited sources. Off by default.
 
 ---
@@ -185,6 +186,13 @@ Add `*.local.md` settings to `.gitignore`. Keys belong in environment variables,
 | `provider` | `openrouter` | `openrouter` or `azure-foundry` |
 | `models` | GPT-6 Sol, Gemini 3.8 Flash, Grok 4.7 | Comma-separated OpenRouter IDs, or Foundry deployment names (required on Azure) |
 | `models_<phase>` | `challenge`: `openai/gpt-6-luna` | Per-round override, e.g. `models_clarify:`. Phases: `clarify`, `architecture`, `review`, `challenge`, `ad-hoc`. The challenge round defaults to one cheap opponent (~$0.002) |
+| `models_swarm` | `openai/gpt-6-luna` | Models for a swarm, cycled across the seats |
+| `swarm_size` | `10` | Members in a swarm round, one per angle; the model list is cycled to fill them |
+| `swarm_angles` | all ten | Which angles, in seat order: `security`, `operations`, `data`, `performance`, `simplicity`, `product`, `testing`, `cost`, `rollout`, `contrarian` |
+| `max_parallel` | `10` | Maximum requests in flight per run |
+| `quorum` / `grace` | `66` / `60` | Once 2 of 3 experts answered, the last gets as long as they took plus 60 s; `grace: off` waits for all |
+| `swarm_quorum` / `swarm_grace` | `80` / `30` | Once 80% of a swarm answered, the rest get as long as that took plus 30 s |
+| `reasoning_effort` / `swarm_reasoning_effort` | -- | `minimal`/`low`/`medium`/`high`; unset = provider default. In one test `low` halved a swarm's time |
 | `fallback_models` | -- | Used when a primary model fails after its retries |
 | `styles` | `ship,scale,simplify` | One professional lens per expert, in model order; `off` to disable |
 | `web_search` | `off` | `on`, `off`, or rounds (e.g. `architecture,review`). OpenRouter only |
