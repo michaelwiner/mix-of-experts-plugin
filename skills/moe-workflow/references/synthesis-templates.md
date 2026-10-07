@@ -113,6 +113,40 @@ Use this template when presenting results from Phase 6 (Quality Review).
 - [ ] [Consider suggestion #1]
 ```
 
+## Swarm Synthesis Template
+
+Use this template when presenting a swarm round (`--swarm`). Take the findings from each seat's
+phase sections (e.g. `## Critical Issues` and `## Warnings` in a review).
+
+```markdown
+## TL;DR
+
+[1-2 sentences: the most important confirmed findings, and how many members answered (e.g. 10/10)]
+
+> Swarm findings are leads, not verdicts. The members are one model seen through ten angles,
+> so their errors are correlated; several seats raising a finding is not verification.
+
+## Findings
+
+| # | Finding | Severity | Raised by | Checked |
+|---|---------|----------|-----------|---------|
+| F1 | [one sentence] | high | security, data, testing | Confirmed: [file:line] |
+| F2 | [one sentence] | high | security | Confirmed |
+| F3 | [one sentence] | medium | product, cost | Refuted: [why] |
+
+[Order by severity, then by how many angles raised it. "Checked" is what the director found:
+Confirmed, Refuted, or Not checked. Never present a Not checked finding as fact.]
+
+## Seats That Did Not Answer
+
+[Seats whose file starts with `# ERROR` or `# LATE`, with their angle, or "None".]
+
+## Recommended Actions
+
+- [ ] [Act on confirmed high-severity finding]
+- [ ] [Verify finding the director could not check]
+```
+
 ## Edge Case Handling
 
 Apply these rules when model responses don't fit neatly into the templates:

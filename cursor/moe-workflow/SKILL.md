@@ -72,6 +72,14 @@ into a settings file or a prompt package. Details: `references/settings-template
 
 `--phase ad-hoc` takes the same full package for one-off questions outside this flow.
 
+**Swarm** (optional, cheap): add `--swarm` to `clarify`, `architecture`, `review` or `ad-hoc` to
+replace the panel with ten seats (default 10× `openai/gpt-6-luna`, ~$0.03), each answering the
+full prompt as one character with one angle (security, operations, data, performance,
+simplicity, product, testing, cost, rollout, contrarian). In benchmarks it matched the panel at
+about a quarter of the cost, though ten seats without angles did as well. Merge duplicate
+findings, note which angles raised each, verify them against the code yourself (the seats share
+one model's blind spots), and present them with the Swarm Synthesis Template.
+
 ### Hard gates
 
 - Never run `architecture` while section 4 still says `Pending`, unless every expert answered
@@ -110,6 +118,10 @@ Use `bash "$QUERY" ...` (foreground) only for quick checks. Never interrupt a fo
 ## Reading responses
 
 - A file starting with `# ERROR` is a failed expert: record it and carry on with the others.
+- A file starting with `# LATE` is an expert dropped because it was still running after the
+  quorum answered (2 of 3, or 80% of a swarm) and then for as long as the quorum took plus a
+  grace period (60 s / 30 s). Say it was dropped; the synthesis rests on the others.
+  `grace: off` in settings waits for everyone.
 - A response missing its required `##` sections is unstructured: use it, but footnote it.
 - 1 of N succeeded: present it with a reduced-confidence caveat. 0 of N: report the errors.
 

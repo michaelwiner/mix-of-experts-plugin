@@ -1,7 +1,7 @@
 #!/bin/bash
 # query-models.sh - Fan out a prompt to multiple AI models via OpenRouter or Azure AI Foundry
 # Usage: bash query-models.sh --settings-file <path> --phase <phase> --prompt-file <path>
-#                             [--no-cache] [--confirm-cost] [--estimate-only]
+#                             [--models a,b] [--swarm] [--no-cache] [--confirm-cost] [--estimate-only]
 # Exit: 0 = ran (see SUMMARY), 1 = error, 3 = estimated cost above max_cost_usd (needs --confirm-cost)
 
 set -euo pipefail
@@ -23,6 +23,7 @@ NO_CACHE=false
 MODELS_OVERRIDE=""
 CONFIRM_COST=false
 ESTIMATE_ONLY=false
+SWARM_FLAG=false
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -33,18 +34,20 @@ while [[ $# -gt 0 ]]; do
     --models) MODELS_OVERRIDE="$2"; shift 2 ;;
     --confirm-cost) CONFIRM_COST=true; shift ;;
     --estimate-only) ESTIMATE_ONLY=true; shift ;;
+    --swarm) SWARM_FLAG=true; shift ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
 done
 
 # Validate required arguments
 if [[ -z "$SETTINGS_FILE" || -z "$PHASE" || -z "$PROMPT_FILE" ]]; then
-  echo "Usage: bash query-models.sh --settings-file <path> --phase <phase> --prompt-file <path> [--no-cache] [--confirm-cost] [--estimate-only]" >&2
+  echo "Usage: bash query-models.sh --settings-file <path> --phase <phase> --prompt-file <path> [--models a,b] [--swarm] [--no-cache] [--confirm-cost] [--estimate-only]" >&2
   echo "  --settings-file  Path to .local.md settings file with YAML frontmatter" >&2
   echo "  --phase          Consultation phase: architecture, review, clarify, challenge, or ad-hoc" >&2
   echo "  --prompt-file    Path to file containing the prompt to send" >&2
   echo "  --no-cache       Skip cache, force fresh API calls" >&2
   echo "  --models         Comma-separated models for this run, overriding the settings file" >&2
+  echo "  --swarm          Full swarm: one seat per angle, each answering this phase's full prompt" >&2
   echo "  --confirm-cost   Run even if the estimated cost is above max_cost_usd" >&2
   echo "  --estimate-only  Print the cost estimate and gate result, call no models" >&2
   exit 1
@@ -131,24 +134,69 @@ case "$PROVIDER" in
     ;;
 esac
 
+# Swarm: `--swarm` on a phase runs one seat per angle instead of the panel. Each seat answers
+# that phase's whole prompt, with its angle as emphasis, like a panel expert with a dev style.
+if [[ "$SWARM_FLAG" == "true" ]]; then
+  case "$PHASE" in
+    clarify|architecture|review|ad-hoc) ;;
+    *) echo "ERROR: --swarm applies to clarify, architecture, review or ad-hoc" >&2; exit 1 ;;
+  esac
+fi
+
 # Extract models list (comma-separated in settings). models_<phase> overrides models for that
 # round only, so e.g. the cheap clarify round can use cheaper models than architecture.
+# A swarm never falls back to the panel's `models`: ten seats of a panel model is a different
+# bill from ten seats of a cheap one.
 MODELS_RAW="$MODELS_OVERRIDE"
-[[ -z "$MODELS_RAW" ]] && MODELS_RAW=$(get_setting "models_${PHASE}")
-[[ -z "$MODELS_RAW" ]] && MODELS_RAW=$(get_setting models)
+if [[ "$SWARM_FLAG" == "true" ]]; then
+  [[ -z "$MODELS_RAW" ]] && MODELS_RAW=$(get_setting models_swarm)
+else
+  [[ -z "$MODELS_RAW" ]] && MODELS_RAW=$(get_setting "models_${PHASE}")
+  [[ -z "$MODELS_RAW" ]] && MODELS_RAW=$(get_setting models)
+fi
 if [[ -z "$MODELS_RAW" ]]; then
   if [[ "$PROVIDER" == "azure-foundry" ]]; then
     # Foundry model names are deployment names chosen per resource; there is no sane default.
     echo "ERROR: provider azure-foundry requires 'models:' (or 'models_${PHASE}:') with Foundry deployment names in the settings file." >&2
     exit 1
   fi
-  if [[ "$PHASE" == "challenge" ]]; then
-    # The challenge round wants one opponent, not a panel: a second critic mostly repeats the
-    # first, and the value is the objection, not a vote. A cheap model does this well.
+  # The challenge round wants one opponent, not a panel: a second critic mostly repeats the
+  # first, and the value is the objection, not a vote. A cheap model does this well.
+  # A swarm is many cheap members whose diversity comes from their angles, not their models.
+  if [[ "$PHASE" == "challenge" || "$SWARM_FLAG" == "true" ]]; then
     MODELS_RAW="openai/gpt-6-luna"
   else
     MODELS_RAW="openai/gpt-6-sol,google/gemini-3.8-flash,x-ai/grok-4.7"
   fi
+fi
+
+# A swarm has swarm_size members, one per angle (default: as many as there are angles). The
+# model list is cycled to fill the seats, so one model, or a small mix, fills every seat.
+SWARM_ANGLES_RAW=$(get_setting swarm_angles)
+[[ -z "$SWARM_ANGLES_RAW" ]] && SWARM_ANGLES_RAW="security,operations,data,performance,simplicity,product,testing,cost,rollout,contrarian"
+IFS=',' read -ra _SWARM_ANGLES <<< "$(echo "$SWARM_ANGLES_RAW" | tr -d ' ')"
+SWARM_SIZE=$(get_setting swarm_size)
+[[ -z "$SWARM_SIZE" ]] && SWARM_SIZE=${#_SWARM_ANGLES[@]}
+if [[ "$SWARM_FLAG" == "true" ]]; then
+  if ! [[ "$SWARM_SIZE" =~ ^[0-9]+$ ]] || [[ "$SWARM_SIZE" -lt 2 || "$SWARM_SIZE" -gt 20 ]]; then
+    echo "ERROR: swarm_size must be an integer from 2 to 20, got '$SWARM_SIZE'" >&2
+    exit 1
+  fi
+  IFS=',' read -ra _SWARM_BASE <<< "$(echo "$MODELS_RAW" | tr -d ' ')"
+  for _M in "${_SWARM_BASE[@]}"; do
+    if [[ -z "$_M" ]]; then
+      echo "ERROR: the swarm model list '$MODELS_RAW' has an empty entry" >&2
+      exit 1
+    fi
+  done
+  if [[ ${#_SWARM_BASE[@]} -gt $SWARM_SIZE ]]; then
+    echo "WARNING: ${#_SWARM_BASE[@]} models listed for $SWARM_SIZE swarm seats; the last $(( ${#_SWARM_BASE[@]} - SWARM_SIZE )) are not used" >&2
+  fi
+  _SWARM_MODELS=()
+  for (( _I = 0; _I < SWARM_SIZE; _I++ )); do
+    _SWARM_MODELS+=("${_SWARM_BASE[$(( _I % ${#_SWARM_BASE[@]} ))]}")
+  done
+  MODELS_RAW=$(IFS=,; echo "${_SWARM_MODELS[*]}")
 fi
 
 # Extract optional fields (use defaults if no frontmatter or field missing)
@@ -158,16 +206,36 @@ TIMEOUT=$(get_setting timeout)
 MAX_RETRIES=$(get_setting retries)
 FALLBACKS_RAW=$(get_setting fallback_models)
 STYLES_RAW=$(get_setting styles)
+REASONING_EFFORT=$(get_setting reasoning_effort)
+# Quorum and grace: once quorum% of the members have answered, the rest get `grace` more seconds,
+# then the run continues without them. One slow member should not hold up the whole run.
+if [[ "$SWARM_FLAG" == "true" ]]; then
+  QUORUM_PCT=$(get_setting swarm_quorum); GRACE_S=$(get_setting swarm_grace)
+  [[ -z "$QUORUM_PCT" ]] && QUORUM_PCT=80
+  [[ -z "$GRACE_S" ]] && GRACE_S=30
+else
+  QUORUM_PCT=$(get_setting quorum); GRACE_S=$(get_setting grace)
+  [[ -z "$QUORUM_PCT" ]] && QUORUM_PCT=66   # 2 of 3
+  [[ -z "$GRACE_S" ]] && GRACE_S=60
+fi
+[[ "$SWARM_FLAG" == "true" && -n "$(get_setting swarm_reasoning_effort)" ]] && REASONING_EFFORT=$(get_setting swarm_reasoning_effort)
 WEB_RAW=$(get_setting web_search)
 WEB_MAX=$(get_setting web_search_max)
 WEB_ENGINE=$(get_setting web_search_engine)
 MAX_COST_USD=$(get_setting max_cost_usd)
+MAX_PARALLEL=$(get_setting max_parallel)
 [[ -z "$MAX_TOKENS" ]] && MAX_TOKENS=8000
 [[ -z "$TEMPERATURE" ]] && TEMPERATURE=0.3
 [[ -z "$TIMEOUT" ]] && TIMEOUT=300
 [[ -z "$MAX_RETRIES" ]] && MAX_RETRIES=1
 [[ -z "$STYLES_RAW" ]] && STYLES_RAW="ship,scale,simplify"
 [[ -z "$MAX_COST_USD" ]] && MAX_COST_USD=0.5
+# Caps concurrent requests. By default every member of a run (up to 10, or every swarm seat) is in
+# flight at once: a run lasts as long as its slowest member, so a second wave roughly doubles it.
+if [[ -z "$MAX_PARALLEL" ]]; then
+  MAX_PARALLEL=10
+  [[ "$SWARM_FLAG" == "true" && $SWARM_SIZE -gt $MAX_PARALLEL ]] && MAX_PARALLEL=$SWARM_SIZE
+fi
 [[ -z "$WEB_MAX" ]] && WEB_MAX=3
 # Exa is the default engine: it honours max_uses, reports the search count, and costs a flat
 # ~$0.007 per search. Native engines may ignore the cap in reporting and cost several times more.
@@ -237,6 +305,18 @@ validate_positive_int "max_tokens" "$MAX_TOKENS"
 validate_temperature "$TEMPERATURE"
 validate_positive_int "timeout" "$TIMEOUT"
 validate_non_negative_int "retries" "$MAX_RETRIES"
+validate_positive_int "max_parallel" "$MAX_PARALLEL"
+if ! [[ "$QUORUM_PCT" =~ ^[0-9]+$ ]] || [[ "$QUORUM_PCT" -lt 1 || "$QUORUM_PCT" -gt 100 ]]; then
+  echo "ERROR: quorum must be a percentage from 1 to 100, got '$QUORUM_PCT'" >&2
+  exit 1
+fi
+if [[ "$GRACE_S" != "off" ]]; then
+  validate_non_negative_int "grace" "$GRACE_S"
+fi
+case "$REASONING_EFFORT" in
+  ""|minimal|low|medium|high) ;;
+  *) echo "ERROR: reasoning_effort must be minimal, low, medium or high, got '$REASONING_EFFORT'" >&2; exit 1 ;;
+esac
 validate_positive_int "web_search_max" "$WEB_MAX"
 case "$WEB_ENGINE" in
   exa|auto|native|parallel|perplexity) ;;
@@ -260,6 +340,47 @@ if [[ "$STYLES_RAW" != "off" && "$STYLES_RAW" != "none" ]]; then
       *) echo "ERROR: Unknown style '$_ST'. Expected ship, scale, simplify, neutral, or 'off'" >&2; exit 1 ;;
     esac
   done
+fi
+
+# ── Swarm angles ───────────────────────────────────────────────────
+# Thousand Brains model: each cortical column builds a whole model of an object from its own
+# patch of input. Here every swarm member reads the whole package but sees it through one angle,
+# assigned by position, which replaces the dev style for that member; the director integrates
+# the answers. Each angle is a character, not a topic: it gives the member a point of view.
+angle_text() {
+  case "$1" in
+    security) echo "You are a penetration tester who has broken into systems like this one. You assume every input is hostile and every dependency can be compromised. Your angle: authentication, authorization, injection, secrets, and data exposure." ;;
+    operations) echo "You are the on-call engineer who gets paged at 3am when this breaks. You have seen retries cause outages and silent failures go unnoticed for weeks. Your angle: partial failures, timeouts, observability, and recovery." ;;
+    data) echo "You are a database engineer who has cleaned up after corrupted data and botched migrations. You trust nothing that is not idempotent. Your angle: data integrity, migrations, concurrency and races, and what gets lost." ;;
+    performance) echo "You are a performance engineer who profiles before believing anything. You have seen designs that were fine at launch collapse at 10x. Your angle: latency, throughput, memory, hot paths, and growth." ;;
+    simplicity) echo "You are a principal engineer who will maintain this for five years after its authors leave. Every moving part is a cost you will pay. Your angle: complexity, coupling, readability, and the cost of change." ;;
+    product) echo "You are the product manager who answers to the users. You have watched technically sound features solve the wrong problem. Your angle: whether this solves the stated problem, for which users, and what users see when it fails." ;;
+    testing) echo "You are a QA lead who believes only what a test proves. Your angle: how each behaviour would be verified, what is hard to test, and which success criterion has no test." ;;
+    cost) echo "You are the engineer who owns the cloud bill and the dependency list. You have been burned by price changes, quotas and abandoned libraries. Your angle: money, lock-in, licensing, dependency health, and rate limits." ;;
+    rollout) echo "You are a release engineer who has had to roll back at the worst moment. Your angle: migration path, backward compatibility, staged release, and how to undo this if it goes wrong." ;;
+    contrarian) echo "You are a sharp outsider with no stake in this design and no patience for groupthink. Your angle: question the premise. Is this the right problem, what would a newcomer find odd, and what is the do-nothing or radically simpler alternative?" ;;
+    *) echo "" ;;
+  esac
+}
+
+if [[ "$SWARM_FLAG" == "true" ]]; then
+  STYLES=("${_SWARM_ANGLES[@]}")
+  for _AN in "${STYLES[@]}"; do
+    if [[ -z "$(angle_text "$_AN")" ]]; then
+      echo "ERROR: Unknown swarm angle '$_AN'. Expected security, operations, data, performance, simplicity, product, testing, cost, rollout, or contrarian" >&2
+      exit 1
+    fi
+  done
+  # Every seat needs its own angle: two seats with one angle (and, by default, one model) are
+  # the same member asked twice, and their duplicate claims look like independent agreement.
+  if [[ -n "$(printf '%s\n' "${STYLES[@]}" | sort | uniq -d)" ]]; then
+    echo "ERROR: swarm_angles lists an angle twice: $(printf '%s\n' "${STYLES[@]}" | sort | uniq -d | tr '\n' ' ')" >&2
+    exit 1
+  fi
+  if [[ "$SWARM_SIZE" -gt ${#STYLES[@]} ]]; then
+    echo "ERROR: swarm_size $SWARM_SIZE is larger than the ${#STYLES[@]} swarm angles; each seat needs its own angle" >&2
+    exit 1
+  fi
 fi
 
 style_for_index() {
@@ -320,9 +441,24 @@ cache_key() {
   local MODEL="$1" STYLE="${2:-neutral}"
   # PROVIDER is part of the key: the same model name on two providers is not the same model.
   # SYSTEM_HASH is too, so editing a phase's required sections never serves stale-format answers.
+  # A swarm seat is identified by model and angle: each angle has one seat.
   local WEB_KEY="web=${WEB_ON}:${WEB_MAX}:${WEB_ENGINE}"
-  echo -n "${PROVIDER}|${PHASE}|${MODEL}|${STYLE}|${WEB_KEY}|${TEMPERATURE}|${MAX_TOKENS}|${PROMPT_HASH}|${SYSTEM_HASH}" | shasum -a 256 2>/dev/null | cut -d' ' -f1 || \
-    echo -n "${PROVIDER}|${PHASE}|${MODEL}|${STYLE}|${WEB_KEY}|${TEMPERATURE}|${MAX_TOKENS}|${PROMPT_HASH}|${SYSTEM_HASH}" | md5 2>/dev/null
+  # The style or angle wording is prepended per seat, outside SYSTEM_HASH: editing it must
+  # not replay answers written under the old wording.
+  local LENS="${STYLE}:${SWARM_FLAG}:${REASONING_EFFORT}:$(style_text "$STYLE")$(angle_text "$STYLE")"
+  echo -n "${PROVIDER}|${PHASE}|${MODEL}|${LENS}|${WEB_KEY}|${TEMPERATURE}|${MAX_TOKENS}|${PROMPT_HASH}|${SYSTEM_HASH}" | shasum -a 256 2>/dev/null | cut -d' ' -f1 || \
+    echo -n "${PROVIDER}|${PHASE}|${MODEL}|${LENS}|${WEB_KEY}|${TEMPERATURE}|${MAX_TOKENS}|${PROMPT_HASH}|${SYSTEM_HASH}" | md5 2>/dev/null
+}
+
+# Response file name for member IDX. One file per model keeps the familiar names; a list that
+# repeats a model (always the case in a swarm) would overwrite itself, so it gets numbered seats.
+member_file_base() {
+  local IDX="$1" MODEL="$2" STYLE="$3"
+  if [[ "$INDEXED_FILES" == "true" ]]; then
+    printf '%02d_%s__%s' "$((IDX + 1))" "$(echo "$MODEL" | tr '/' '_')" "$STYLE"
+  else
+    echo "$MODEL" | tr '/' '_'
+  fi
 }
 
 # ── Create output directory ────────────────────────────────────────
@@ -331,21 +467,49 @@ OUTPUT_DIR=$(mktemp -d)
 # Track temp files for cleanup on exit/signal
 _MOE_TEMP_FILES=()
 
+# Stops a process and everything under it. The whole tree is listed first, then parents are
+# stopped before children: a member whose curl died first could act on that (retry, sleep, or
+# write FAILED) before being stopped itself.
+kill_tree() {
+  local pids=("$1") i=0 child
+  while [[ $i -lt ${#pids[@]} ]]; do
+    for child in $(pgrep -P "${pids[$i]}" 2>/dev/null); do
+      pids+=("$child")
+    done
+    i=$((i + 1))
+  done
+  kill "${pids[@]}" 2>/dev/null || true
+}
+
 _moe_cleanup() {
+  # Members still in flight (Ctrl-C, or this script killed) would otherwise keep running and billing.
+  local pid
+  for pid in $(jobs -p 2>/dev/null); do
+    kill_tree "$pid"
+  done
   if [[ ${#_MOE_TEMP_FILES[@]} -gt 0 ]]; then
     for f in "${_MOE_TEMP_FILES[@]}"; do
       rm -f "$f" 2>/dev/null
     done
   fi
-  rm -f "$OUTPUT_DIR"/*.status "$OUTPUT_DIR"/*.cost 2>/dev/null
+  rm -f "$OUTPUT_DIR"/*.status "$OUTPUT_DIR"/*.cost "$OUTPUT_DIR"/*.part.md 2>/dev/null
 }
 
-trap _moe_cleanup EXIT INT TERM
+trap _moe_cleanup EXIT
+trap '_moe_cleanup; exit 130' INT
+trap '_moe_cleanup; exit 143' TERM
 
 echo "OUTPUT_DIR=$OUTPUT_DIR"
 
 # Split models into array
 IFS=',' read -ra MODELS <<< "$MODELS_RAW"
+
+INDEXED_FILES="$SWARM_FLAG"
+# Compared after the `/` -> `_` mapping, which can make two different names (a/b_c, a_b/c) collide.
+if [[ "$INDEXED_FILES" == "false" ]] && \
+   [[ -n "$(printf '%s\n' "${MODELS[@]}" | tr -d ' ' | tr '/' '_' | sort | uniq -d)" ]]; then
+  INDEXED_FILES=true
+fi
 
 # Split fallback models if provided
 FALLBACKS=()
@@ -560,12 +724,17 @@ call_model() {
   local EXPANDED=false
   local SPENT=0
   local SERVER_WAIT=""
+  local STARTED=$SECONDS
   local HDR_FILE
   HDR_FILE=$(mktemp)
   local BASE_SYSTEM="$SYSTEM_PROMPT"
   local STYLE_LINE
   STYLE_LINE=$(style_text "$STYLE")
-  if [[ -n "$STYLE_LINE" ]]; then
+  if [[ "$SWARM_FLAG" == "true" ]]; then
+    BASE_SYSTEM="YOUR CHARACTER: $(angle_text "$STYLE") This is your angle and your emphasis, not a blind spot: still cover every required section.
+
+$SYSTEM_PROMPT"
+  elif [[ -n "$STYLE_LINE" ]]; then
     BASE_SYSTEM="$STYLE_LINE Treat this as your emphasis, not a blind spot: still cover every required section.
 
 $SYSTEM_PROMPT"
@@ -612,6 +781,9 @@ ${RETRY_ADDENDUM//__ATTEMPT__/$((ATTEMPT + 1))}"
           ],
           max_completion_tokens: $max_tokens
         }')
+      if [[ -n "$REASONING_EFFORT" ]]; then
+        PAYLOAD=$(echo "$PAYLOAD" | jq --arg e "$REASONING_EFFORT" '. + {reasoning_effort: $e}')
+      fi
       RESPONSE=$(curl -s -w "\n%{http_code}" \
         --max-time "$TIMEOUT" \
         --connect-timeout 10 \
@@ -640,6 +812,10 @@ ${RETRY_ADDENDUM//__ATTEMPT__/$((ATTEMPT + 1))}"
         # max_uses is enforced server-side: past the cap the model is told the limit was hit.
         PAYLOAD=$(echo "$PAYLOAD" | jq --argjson max_uses "$WEB_MAX" --arg engine "$WEB_ENGINE" \
           '. + {tools: [{type: "openrouter:web_search", parameters: {max_uses: $max_uses, engine: $engine}}]}')
+      fi
+      if [[ -n "$REASONING_EFFORT" ]]; then
+        # Reasoning models think before answering; lower effort trades depth for latency and cost.
+        PAYLOAD=$(echo "$PAYLOAD" | jq --arg e "$REASONING_EFFORT" '. + {reasoning: {effort: $e}}')
       fi
       RESPONSE=$(curl -s -w "\n%{http_code}" \
         --max-time "$TIMEOUT" \
@@ -721,7 +897,7 @@ ${RETRY_ADDENDUM//__ATTEMPT__/$((ATTEMPT + 1))}"
       # neither the director nor a grep sees the heading. Put known section headings back on
       # their own line.
       CONTENT=$(echo "$BODY" | jq -r '.choices[0].message.content // empty
-        | gsub("(?<pre>[^\n])(?<h>## (Summary|Key Claims|Implementation Detail|Risks and Trade-offs|Clarifying Questions|Context Requests|Critical Issues|Warnings|Suggestions|Analysis|Alternatives Considered|Confidence)\\b)"; "\(.pre)\n\n\(.h)")')
+        | gsub("(?<pre>[^\n#])(?<h>## (Summary|Key Claims|Implementation Detail|Risks and Trade-offs|Clarifying Questions|Context Requests|Critical Issues|Warnings|Suggestions|Analysis|Alternatives Considered|Confidence)\\b)"; "\(.pre)\n\n\(.h)")')
 
       if [[ -z "$CONTENT" ]]; then
         # 200 but empty content — treat as failure
@@ -760,7 +936,11 @@ ${RETRY_ADDENDUM//__ATTEMPT__/$((ATTEMPT + 1))}"
         echo "# Response from $MODEL"
         echo ""
         echo "**Provider**: $PROVIDER"
-        echo "**Style**: $STYLE"
+        if [[ "$SWARM_FLAG" == "true" ]]; then
+          echo "**Angle**: $STYLE"
+        else
+          echo "**Style**: $STYLE"
+        fi
         if [[ "$WEB_ON" == "true" ]]; then
           echo "**Web searches**: $SEARCHES of $WEB_MAX ($WEB_ENGINE)"
         elif [[ -n "$WEB_UNAVAILABLE" ]]; then
@@ -768,6 +948,8 @@ ${RETRY_ADDENDUM//__ATTEMPT__/$((ATTEMPT + 1))}"
         fi
         echo "**Tokens**: prompt=$USAGE_PROMPT, completion=$USAGE_COMPLETION"
         echo "**Attempts**: $((ATTEMPT + 1))$([[ "$EXPANDED" == "true" ]] && echo " (+1 with max_tokens=$TOKENS)")"
+        echo "**Latency**: $((SECONDS - STARTED))s"
+        [[ -n "$REASONING_EFFORT" ]] && echo "**Reasoning effort**: $REASONING_EFFORT"
         [[ "$PROVIDER" == "openrouter" ]] && printf '**Cost**: $%.4f\n' "$SPENT"
         [[ "$FINISH" == "length" ]] && echo "**Status**: TRUNCATED — cut off at max_tokens=$TOKENS; trailing sections may be missing"
         echo ""
@@ -841,62 +1023,158 @@ ${RETRY_ADDENDUM//__ATTEMPT__/$((ATTEMPT + 1))}"
 }
 
 # ── Query each model in parallel ───────────────────────────────────
-PIDS=()
 MODEL_LIST=()
 STYLE_LIST=()
+FILE_LIST=()
+PID_LIST=()
+LAUNCH_LIST=()
+RUN_STARTED=$SECONDS
 
 for MODEL in "${MODELS[@]}"; do
   MODEL=$(echo "$MODEL" | tr -d ' ')
-  STYLE=$(style_for_index "${#MODEL_LIST[@]}")
+  IDX=${#MODEL_LIST[@]}
+  STYLE=$(style_for_index "$IDX")
+  FILE_BASE=$(member_file_base "$IDX" "$MODEL" "$STYLE")
   MODEL_LIST+=("$MODEL")
   STYLE_LIST+=("$STYLE")
-  OUTPUT_FILE="$OUTPUT_DIR/$(echo "$MODEL" | tr '/' '_').md"
-  RESULT_FILE="$OUTPUT_DIR/$(echo "$MODEL" | tr '/' '_').status"
+  FILE_LIST+=("$FILE_BASE")
+  OUTPUT_FILE="$OUTPUT_DIR/$FILE_BASE.md"
+  RESULT_FILE="$OUTPUT_DIR/$FILE_BASE.status"
+  KEY=$(cache_key "$MODEL" "$STYLE")
 
   # Check cache
-  if [[ "$NO_CACHE" != "true" ]]; then
-    KEY=$(cache_key "$MODEL" "$STYLE")
-    CACHED="$CACHE_DIR/$KEY.md"
-    if [[ -f "$CACHED" ]]; then
-      cp "$CACHED" "$OUTPUT_FILE"
-      echo "CACHED" > "$RESULT_FILE"
-      continue
-    fi
+  if [[ "$NO_CACHE" != "true" && -f "$CACHE_DIR/$KEY.md" ]]; then
+    # The cached header's latency is the original request's, not this run's.
+    sed 's/^\*\*Latency\*\*: \(.*\)$/**Latency**: \1 (original request; served from cache)/' \
+      "$CACHE_DIR/$KEY.md" > "$OUTPUT_FILE"
+    echo "CACHED" > "$RESULT_FILE"
+    PID_LIST+=("")
+    LAUNCH_LIST+=("")
+    continue
   fi
 
+  # At most MAX_PARALLEL requests in flight; the next starts as soon as any one finishes. Bash 3.2
+  # (macOS) has no `wait -n`, so it polls the count of running jobs; the final loop reaps them all.
+  while [[ $(jobs -rp | wc -l) -ge $MAX_PARALLEL ]]; do
+    sleep 0.2
+  done
+
   (
-    RESULT=$(call_model "$MODEL" "$OUTPUT_FILE" "$STYLE")
+    # The answer is written under a temporary name and published after its status, so a member
+    # with no status file has not finished and dropping it late never discards a finished answer.
+    PART_FILE="$OUTPUT_DIR/$FILE_BASE.part.md"
+    RESULT=$(call_model "$MODEL" "$PART_FILE" "$STYLE")
     echo "$RESULT" > "$RESULT_FILE"
-    # Cache complete answers only; a TRUNCATED one would be replayed forever.
+    [[ -f "$PART_FILE" ]] && mv "$PART_FILE" "$OUTPUT_FILE"
+    # Cache complete answers only; a TRUNCATED one would be replayed forever. Two seats can share
+    # a cache key, so each writes its own temporary file.
     if [[ "$RESULT" == "OK" && "$NO_CACHE" != "true" ]]; then
-      KEY=$(cache_key "$MODEL" "$STYLE")
-      cp "$OUTPUT_FILE" "$CACHE_DIR/.$KEY.tmp"
-      mv "$CACHE_DIR/.$KEY.tmp" "$CACHE_DIR/$KEY.md"
+      CACHE_TMP=$(mktemp "$CACHE_DIR/.$KEY.XXXXXX")
+      cp "$OUTPUT_FILE" "$CACHE_TMP"
+      mv "$CACHE_TMP" "$CACHE_DIR/$KEY.md"
     fi
   ) &
-  PIDS+=($!)
+  PID_LIST+=($!)
+  LAUNCH_LIST+=($SECONDS)
 done
 
-# Wait for all primary requests
-if [[ ${#PIDS[@]} -gt 0 ]]; then
-  for PID in "${PIDS[@]}"; do
+# Wait for the members: all of them, or quorum + grace (see QUORUM_PCT above). The quorum counts
+# live members that returned an answer. Cached members are left out (they answer at once, so a
+# re-run would start the clock at zero and drop the same slow member again), and so are failures
+# (two quick errors must not cut short the one member still working).
+answered_count() {
+  local i n=0 s
+  for (( i = 0; i < TOTAL_MEMBERS; i++ )); do
+    [[ -z "${PID_LIST[$i]}" ]] && continue
+    s=$(cat "$OUTPUT_DIR/${FILE_LIST[$i]}.status" 2>/dev/null || true)
+    [[ "$s" == "OK" || "$s" == "TRUNCATED" ]] && n=$((n + 1))
+  done
+  echo "$n"
+}
+
+# Once quorum is reached, every member's budget is the time the quorum took plus the grace,
+# counted from that member's own launch: a member that waited for a free slot (MAX_PARALLEL
+# below the member count) started late, which does not make it slow.
+still_in_budget() {
+  local i
+  for (( i = 0; i < TOTAL_MEMBERS; i++ )); do
+    [[ -z "${PID_LIST[$i]}" || -f "$OUTPUT_DIR/${FILE_LIST[$i]}.status" ]] && continue
+    [[ $(( SECONDS - LAUNCH_LIST[i] )) -lt $BUDGET_S ]] && return 0
+  done
+  return 1
+}
+
+TOTAL_MEMBERS=${#MODEL_LIST[@]}
+LIVE_MEMBERS=0
+for PID in "${PID_LIST[@]}"; do
+  [[ -n "$PID" ]] && LIVE_MEMBERS=$((LIVE_MEMBERS + 1))
+done
+BUDGET_S=""
+QUORUM_AT=0
+QUORUM_S=0
+while [[ $(jobs -rp | wc -l) -gt 0 ]]; do
+  if [[ "$GRACE_S" != "off" && $LIVE_MEMBERS -gt 1 ]]; then
+    ANSWERED=$(answered_count)
+    if [[ -z "$BUDGET_S" && $(( ANSWERED * 100 )) -ge $(( QUORUM_PCT * LIVE_MEMBERS )) ]]; then
+      QUORUM_AT=$ANSWERED
+      QUORUM_S=$(( SECONDS - RUN_STARTED ))
+      BUDGET_S=$(( QUORUM_S + GRACE_S ))
+      [[ $ANSWERED -lt $LIVE_MEMBERS ]] && \
+        echo "  Quorum: $ANSWERED of $LIVE_MEMBERS live members answered in ${QUORUM_S}s; waiting up to ${GRACE_S}s more for the rest..." >&2
+    fi
+    [[ -n "$BUDGET_S" ]] && ! still_in_budget && break
+  fi
+  sleep 0.5
+done
+
+# Drop the members still running when their budget ran out. Their requests are cancelled; the
+# provider may still bill tokens it generated before the cancel, which is not counted below.
+# Without a quorum the loop above ran until every member finished, so there is nothing to drop.
+if [[ -n "$BUDGET_S" ]]; then
+  for (( _MI = 0; _MI < TOTAL_MEMBERS; _MI++ )); do
+    PID="${PID_LIST[$_MI]}"
+    FILE_BASE="${FILE_LIST[$_MI]}"
+    PART_FILE="$OUTPUT_DIR/$FILE_BASE.part.md"
+    [[ -z "$PID" || -f "$OUTPUT_DIR/$FILE_BASE.status" ]] && continue
+    # A member that exited without a status crashed rather than ran late; the summary reports it.
+    jobs -rp | grep -qx "$PID" || continue
+    kill_tree "$PID"
     wait "$PID" 2>/dev/null || true
+    # It may have finished between the check and the kill; then its answer stands.
+    if [[ -f "$OUTPUT_DIR/$FILE_BASE.status" ]]; then
+      [[ -f "$PART_FILE" ]] && mv "$PART_FILE" "$OUTPUT_DIR/$FILE_BASE.md"
+      continue
+    fi
+    rm -f "$PART_FILE"
+    {
+      echo "# LATE from ${MODEL_LIST[$_MI]}"
+      echo ""
+      echo "**Status**: LATE — no answer after $(( SECONDS - LAUNCH_LIST[_MI] ))s. $QUORUM_AT of $LIVE_MEMBERS live members had answered within ${QUORUM_S}s, and each member gets that plus ${GRACE_S}s; dropped so the run could finish."
+      echo ""
+      echo "Raise \`grace\` (or \`swarm_grace\`), or set it to \`off\`, to wait for every member."
+    } > "$OUTPUT_DIR/$FILE_BASE.md"
+    echo "LATE" > "$OUTPUT_DIR/$FILE_BASE.status"
+    echo "  Dropped late: ${MODEL_LIST[$_MI]} ($FILE_BASE)" >&2
   done
 fi
+for PID in "${PID_LIST[@]}"; do
+  [[ -n "$PID" ]] && { wait "$PID" 2>/dev/null || true; }
+done
 
 # ── Fallback: retry failed models with alternatives ────────────────
 FALLBACK_IDX=0
 _MI=0
 for MODEL in "${MODEL_LIST[@]}"; do
   STYLE="${STYLE_LIST[$_MI]}"
+  FILE_BASE="${FILE_LIST[$_MI]}"
   _MI=$((_MI + 1))
-  STATUS_FILE="$OUTPUT_DIR/$(echo "$MODEL" | tr '/' '_').status"
+  STATUS_FILE="$OUTPUT_DIR/$FILE_BASE.status"
   STATUS=$(cat "$STATUS_FILE" 2>/dev/null || echo "FAILED")
 
   if [[ "$STATUS" == "FAILED" && $FALLBACK_IDX -lt ${#FALLBACKS[@]} ]]; then
     FALLBACK_MODEL=$(echo "${FALLBACKS[$FALLBACK_IDX]}" | tr -d ' ')
     FALLBACK_IDX=$((FALLBACK_IDX + 1))
-    OUTPUT_FILE="$OUTPUT_DIR/$(echo "$MODEL" | tr '/' '_').md"
+    OUTPUT_FILE="$OUTPUT_DIR/$FILE_BASE.md"
 
     echo "  Falling back: $MODEL -> $FALLBACK_MODEL" >&2
     # The fallback's own outcome is what counts: the note prepended below would otherwise
@@ -933,10 +1211,14 @@ SUCCESS_COUNT=0
 FAIL_COUNT=0
 CACHE_COUNT=0
 TRUNC_COUNT=0
+LATE_COUNT=0
 
+_MI=0
 for MODEL in "${MODEL_LIST[@]}"; do
-  OUTPUT_FILE="$OUTPUT_DIR/$(echo "$MODEL" | tr '/' '_').md"
-  STATUS_FILE="$OUTPUT_DIR/$(echo "$MODEL" | tr '/' '_').status"
+  FILE_BASE="${FILE_LIST[$_MI]}"
+  _MI=$((_MI + 1))
+  OUTPUT_FILE="$OUTPUT_DIR/$FILE_BASE.md"
+  STATUS_FILE="$OUTPUT_DIR/$FILE_BASE.status"
   STATUS=$(cat "$STATUS_FILE" 2>/dev/null || echo "")
 
   if [[ ! -f "$OUTPUT_FILE" ]]; then
@@ -959,6 +1241,10 @@ for MODEL in "${MODEL_LIST[@]}"; do
       TRUNC_COUNT=$((TRUNC_COUNT + 1))
       SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
       ;;
+    LATE)
+      echo "  LATE  $OUTPUT_FILE"
+      LATE_COUNT=$((LATE_COUNT + 1))
+      ;;
     *)
       echo "  FAIL  $OUTPUT_FILE"
       FAIL_COUNT=$((FAIL_COUNT + 1))
@@ -979,4 +1265,6 @@ COST_STR=""
 if [[ "$PROVIDER" == "openrouter" ]]; then
   COST_STR=" | Cost: $(printf '$%.4f' "$TOTAL_COST")"
 fi
-echo "SUMMARY: $SUCCESS_COUNT succeeded${NOTE_STR}, $FAIL_COUNT failed, ${#MODEL_LIST[@]} total${COST_STR}"
+LATE_STR=""
+[[ $LATE_COUNT -gt 0 ]] && LATE_STR=", $LATE_COUNT dropped late"
+echo "SUMMARY: $SUCCESS_COUNT succeeded${NOTE_STR}, $FAIL_COUNT failed${LATE_STR}, ${#MODEL_LIST[@]} total${COST_STR}"

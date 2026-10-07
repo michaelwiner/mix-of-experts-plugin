@@ -17,7 +17,7 @@ bash query-models.sh \
   --settings-file <path> \
   --phase <architecture|review|clarify|challenge|ad-hoc> \
   --prompt-file <path> \
-  [--no-cache] [--confirm-cost] [--estimate-only]
+  [--models a,b] [--swarm] [--no-cache] [--confirm-cost] [--estimate-only]
 ```
 
 | Argument | Required | Description |
@@ -27,6 +27,7 @@ bash query-models.sh \
 | `--prompt-file` | Yes | The prompt package (see `prompt-package.md`) |
 | `--no-cache` | No | Skip the response cache and force fresh API calls |
 | `--models` | No | Comma-separated models for this run, overriding `models` / `models_<phase>`. Used to send the challenge round to a model that did not write the design |
+| `--swarm` | No | Swarm: one seat per angle (default 10× `openai/gpt-6-luna`), each answering this phase's full prompt with its angle as emphasis. For `clarify`, `architecture`, `review`, `ad-hoc` |
 | `--confirm-cost` | No | Run even if the cost estimate is above `max_cost_usd` (only after the user agreed) |
 | `--estimate-only` | No | Print the cost estimate and gate result, call no models |
 
@@ -41,6 +42,50 @@ Each phase sets a system prompt that requires specific `##` sections:
 - **`review`**: `## Summary`, `## Critical Issues`, `## Warnings`, `## Suggestions` (each `None identified.` if empty), `## Confidence`
 - **`challenge`**: `## Summary`, `## The Case Against` (why this design is the wrong choice, and what to build instead), `## Post-Mortem` (six months on, it shipped and failed: what broke and why), `## Confidence` (including whether the opponent would build it anyway). The expert is instructed to oppose, not to weigh both sides: soft framing ("critique this") measurably produces agreement dressed as nuance
 - **`ad-hoc`**: `## Summary`, `## Analysis`, `## Alternatives Considered`, `## Confidence` (ends with the most valuable missing information, as for architecture)
+
+### Swarm
+
+`--swarm` on `review`, `architecture`, `clarify` or `ad-hoc` replaces the panel with seats that
+each answer that phase's full prompt and sections. Each seat's system prompt starts with its
+character: `YOUR CHARACTER: ... This is your angle and your emphasis, not a blind spot`. Ten
+seats of `openai/gpt-6-luna` cost about $0.03 per round.
+
+- **Seats.** `swarm_size` seats (default: one per angle in `swarm_angles`, i.e. 10). The model
+  list (`--models`, else `models_swarm`, else `openai/gpt-6-luna`; never the panel's `models`)
+  is cycled to fill the seats, and seat *i* gets the *i*-th angle. A list longer than the seats
+  is cut, with a warning.
+- **Headers.** Responses carry `**Angle**:` instead of `**Style**:`.
+- **Files.** Named by seat: `NN_<model>__<angle>.md`. Any run whose model list repeats a model
+  uses the same numbered names (before 0.3.0 such runs overwrote one file); runs without
+  repeats keep `<model>.md`.
+- **One round.** There is no vote round: the director merges the answers and verifies them against the code.
+
+### Concurrency, quorum and grace
+
+- At most `max_parallel` requests are in flight per run (default 10, or every swarm seat if
+  more); the next starts as soon as any one finishes. The cap is per run, not across runs.
+- A run lasts as long as its slowest member, so it does not wait for every member: once
+  `quorum`% have answered (default 66, i.e. 2 of 3; swarms `swarm_quorum`, default 80), each
+  remaining member gets as long as the quorum took plus `grace` seconds (default 60; swarms
+  `swarm_grace`, default 30), counted from its own start, and is then cancelled. Counting from
+  each member's start means one that waited for a free slot under `max_parallel` is not dropped
+  for starting late. The quorum counts only live members that returned an answer: cached
+  members and failures do not count, so a re-run with cached answers, or two quick errors, does
+  not cut short the member still working. `grace: off` waits for everyone. Runs with a single
+  live member are never cut short.
+- A dropped member's file starts with `# LATE from <model>` and has `**Status**: LATE`; it is
+  not retried and gets no fallback model. Tokens a provider generated before the cancel may
+  still be billed but are not in `Cost:`.
+- Each response header has `**Latency**: Ns` (the member's whole call, including retries). A
+  cached answer keeps the original request's latency, marked `(original request; served from cache)`.
+
+### Reasoning effort
+
+`reasoning_effort` (and `swarm_reasoning_effort` for swarms) sets how long reasoning models think
+before answering: `minimal`, `low`, `medium` or `high`, sent as `reasoning.effort` on OpenRouter
+and `reasoning_effort` on Azure. Unset means the provider default. Lower effort is faster and
+cheaper and may be shallower; it is part of the cache key and shown in the response header.
+
 
 ### Providers
 
@@ -97,11 +142,12 @@ truncated answer.
 ### Output
 
 1. `OUTPUT_DIR=/path/to/temp/dir` — directory containing the response files
-2. `MODEL_RESPONSES:` — each file with status `OK`, `TRUNC`, `CACHE`, `FAIL` or `MISS`
-3. `SUMMARY: N succeeded[ (T truncated, C cached)], F failed, M total[ | Cost: $X]`
+2. `MODEL_RESPONSES:` — each file with status `OK`, `TRUNC`, `CACHE`, `LATE`, `FAIL` or `MISS`
+3. `SUMMARY: N succeeded[ (T truncated, C cached)], F failed[, L dropped late], M total[ | Cost: $X]`
 
 Response files are named after the model with `/` replaced by `_`
-(`openai_gpt-6-sol.md`, `grok-4.6-expert.md`).
+(`openai_gpt-6-sol.md`, `grok-4.6-expert.md`); swarm runs, and runs whose model list repeats a
+model, are numbered by seat (`03_openai_gpt-6-luna__data.md`).
 
 Successful response:
 ```markdown
@@ -210,6 +256,10 @@ is reconciled: with a successful `SUMMARY` in `summary` or `stdout.log` the run 
 - `max_tokens`, `timeout`: positive integers; `retries`: non-negative integer
 - `temperature`: number between 0.0 and 2.0
 - Model names: `provider/model` for OpenRouter, deployment names for Azure
+- `max_parallel`: positive integer; `swarm_size`: 2–20 and at most the number of angles
+- `quorum` / `swarm_quorum`: 1–100; `grace` / `swarm_grace`: non-negative integer or `off`
+- `reasoning_effort` / `swarm_reasoning_effort`: `minimal`, `low`, `medium` or `high`
+- `swarm_angles`: known angles, each at most once; `--swarm` only with `clarify`, `architecture`, `review`, `ad-hoc`
 
 Invalid values exit 1 before any API call.
 

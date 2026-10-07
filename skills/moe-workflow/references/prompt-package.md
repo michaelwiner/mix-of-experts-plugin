@@ -2,8 +2,8 @@
 
 Experts have no repository access, no tools, and no memory of earlier rounds. Everything they
 know comes from the file passed as `--prompt-file`. Every fan-out (`clarify`, `architecture`,
-`ad-hoc`, `review`) sends a package with **all nine sections, in this order, with these exact
-headings**. A section with nothing to say states that explicitly (`None.`); never drop a heading.
+`ad-hoc`, `review`, `challenge`, and swarms of these) sends a package with **all nine sections, in this
+order, with these exact headings**. A section with nothing to say states that explicitly (`None.`); never drop a heading.
 
 ## Template
 

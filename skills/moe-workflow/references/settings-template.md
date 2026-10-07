@@ -87,11 +87,19 @@ Any markdown content below the frontmatter is ignored by the script.
 | `azure_endpoint` | Azure: yes, unless `AZURE_OPENAI_ENDPOINT` is set | - | Foundry resource URL; a trailing `/` is stripped |
 | `openrouter_api_key` / `azure_api_key` | No | - | Fallbacks for the env vars; prefer the env |
 | `models_<phase>` | No | `challenge`: `openai/gpt-6-luna` | Overrides `models` for one round, e.g. `models_clarify:` with cheaper models. Phases: `clarify`, `architecture`, `review`, `challenge`, `ad-hoc`. The challenge round defaults to a single cheap opponent, since one objection is the point, not a vote |
+| `models_swarm` | No | `openai/gpt-6-luna` | Models for a swarm (`--swarm`), cycled across the seats. A swarm never falls back to `models` or `models_<phase>` |
 | `fallback_models` | No | - | Same format as `models`; used when a primary model fails after all retries |
 | `styles` | No | `ship,scale,simplify` | Professional lens per expert, assigned by model position and rotating. Values: `ship`, `scale`, `simplify`, `neutral`, or `off` |
 | `web_search` | No | `off` | `on`, `off`, or phases, e.g. `architecture,review`. Lets experts search the web (OpenRouter only) |
 | `web_search_max` | No | `3` | Maximum searches per expert per call (enforced by OpenRouter) |
 | `web_search_engine` | No | `exa` | `exa`, `auto`, `native`, `parallel`, `perplexity` |
+| `swarm_size` | No | number of `swarm_angles` (10) | Seats in a swarm, 2 to the number of angles. The model list is cycled to fill them |
+| `swarm_angles` | No | all ten | The angles, one per seat, in seat order. Values: `security`, `operations`, `data`, `performance`, `simplicity`, `product`, `testing`, `cost`, `rollout`, `contrarian`. Each may appear once |
+| `max_parallel` | No | `10` (or every swarm seat) | Maximum requests in flight per run |
+| `quorum` / `grace` | No | `66` / `60` | Once `quorum`% of the members have answered (66 = 2 of 3), each of the rest gets as long as the quorum took plus `grace` seconds from its own start, then is dropped as `LATE`. `grace: off` waits for all |
+| `swarm_quorum` / `swarm_grace` | No | `80` / `30` | The same for swarms |
+| `reasoning_effort` | No | provider default | `minimal`, `low`, `medium` or `high` for reasoning models: lower is faster and cheaper |
+| `swarm_reasoning_effort` | No | `reasoning_effort` | The same for swarms. In one test `low` halved a 10-seat swarm's wall time; its effect on quality is unmeasured |
 | `max_cost_usd` | No | `0.5` | Pre-run estimate above this blocks the run (exit 3) until re-run with `--confirm-cost`. OpenRouter only |
 | `max_tokens` | No | `8000` | Maximum completion tokens per model |
 | `temperature` | No | `0.3` | 0.0 – 2.0. Ignored (not sent) for `azure-foundry` |
@@ -112,6 +120,45 @@ each expert gets one professional lens, in model order:
 
 The lens is an emphasis: every expert still returns every required section. `styles: off`
 disables it. The style is recorded in each response header (`**Style**:`).
+
+## Swarm
+
+A swarm (`--swarm` on `review`, `architecture`, `clarify` or `ad-hoc`) sends the package to
+`swarm_size` seats (default 10), each playing one character with one angle and answering the
+phase's whole prompt with its angle as emphasis. The director merges the answers and verifies
+them.
+
+| Angle | Character |
+|---|---|
+| `security` | Penetration tester: authentication, authorization, injection, secrets, data exposure |
+| `operations` | On-call engineer: partial failures, timeouts, observability, recovery |
+| `data` | Database engineer: integrity, migrations, races, idempotency |
+| `performance` | Performance engineer: latency, throughput, memory, growth |
+| `simplicity` | Long-term maintainer: complexity, coupling, cost of change |
+| `product` | Product manager: right problem, which users, what users see on failure |
+| `testing` | QA lead: how each behaviour is proven, untested success criteria |
+| `cost` | Bill and dependency owner: money, lock-in, licensing, rate limits |
+| `rollout` | Release engineer: migration, compatibility, staged release, undo |
+| `contrarian` | Outsider: questions the premise, proposes the simpler alternative |
+
+```markdown
+---
+swarm_size: 6
+swarm_angles: security,data,operations,testing,product,contrarian
+---
+```
+
+The default swarm is ten seats of `openai/gpt-6-luna`, about $0.03 per round. One model in
+every seat means correlated errors: members tend to make the same mistakes, and in benchmarks
+ten seats with angles scored the same as ten without, so do not count on the angles for
+coverage. A short mixed list is cycled across the seats and gives
+less correlated answers for a little more money:
+
+```markdown
+---
+models_swarm: openai/gpt-6-luna,google/gemini-3.8-flash
+---
+```
 
 ## Web search
 

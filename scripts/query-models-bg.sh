@@ -1,7 +1,7 @@
 #!/bin/bash
 # query-models-bg.sh - Run query-models.sh as a detached background job and return immediately.
 # Usage: bash query-models-bg.sh --settings-file <path> --phase <phase> --prompt-file <path>
-#                                [--no-cache] [--models a,b] [--confirm-cost] [--run-id <id>]
+#                                [--no-cache] [--models a,b] [--swarm] [--confirm-cost] [--run-id <id>]
 # Exit: 0 = launched, 1 = error, 3 = estimated cost above max_cost_usd (ask, then --confirm-cost)
 # Poll with: bash moe-status.sh --run-id <id>   (or --latest)
 #
@@ -24,6 +24,7 @@ PROMPT_FILE=""
 NO_CACHE=false
 MODELS_OVERRIDE=""
 CONFIRM_COST=false
+SWARM_FLAG=false
 RUN_ID=""
 
 while [[ $# -gt 0 ]]; do
@@ -34,13 +35,14 @@ while [[ $# -gt 0 ]]; do
     --no-cache) NO_CACHE=true; shift ;;
     --models) MODELS_OVERRIDE="$2"; shift 2 ;;
     --confirm-cost) CONFIRM_COST=true; shift ;;
+    --swarm) SWARM_FLAG=true; shift ;;
     --run-id) RUN_ID="$2"; shift 2 ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
 done
 
 if [[ -z "$SETTINGS_FILE" || -z "$PHASE" || -z "$PROMPT_FILE" ]]; then
-  echo "Usage: bash query-models-bg.sh --settings-file <path> --phase <phase> --prompt-file <path> [--no-cache] [--models a,b] [--confirm-cost] [--run-id <id>]" >&2
+  echo "Usage: bash query-models-bg.sh --settings-file <path> --phase <phase> --prompt-file <path> [--no-cache] [--models a,b] [--swarm] [--confirm-cost] [--run-id <id>]" >&2
   exit 1
 fi
 
@@ -55,6 +57,7 @@ PREFLIGHT_ARGS=(--settings-file "$SETTINGS_FILE" --phase "$PHASE" --prompt-file 
 [[ -n "$MODELS_OVERRIDE" ]] && PREFLIGHT_ARGS+=(--models "$MODELS_OVERRIDE")
 [[ "$NO_CACHE" == "true" ]] && PREFLIGHT_ARGS+=(--no-cache)
 [[ "$CONFIRM_COST" == "true" ]] && PREFLIGHT_ARGS+=(--confirm-cost)
+[[ "$SWARM_FLAG" == "true" ]] && PREFLIGHT_ARGS+=(--swarm)
 PREFLIGHT_RC=0
 PREFLIGHT_OUT=$(bash "$SCRIPT_DIR/query-models.sh" "${PREFLIGHT_ARGS[@]}" 2>&1) || PREFLIGHT_RC=$?
 if [[ $PREFLIGHT_RC -ne 0 ]]; then
@@ -92,6 +95,7 @@ echo "running" > "$RUN_DIR/status"
 QUERY_ARGS=(--settings-file "$SETTINGS_FILE" --phase "$PHASE" --prompt-file "$RUN_DIR/prompt.md")
 [[ -n "$MODELS_OVERRIDE" ]] && QUERY_ARGS+=(--models "$MODELS_OVERRIDE")
 [[ "$NO_CACHE" == "true" ]] && QUERY_ARGS+=(--no-cache)
+[[ "$SWARM_FLAG" == "true" ]] && QUERY_ARGS+=(--swarm)
 # The preflight already applied the gate; the detached run must not stop on it again.
 QUERY_ARGS+=(--confirm-cost)
 
