@@ -162,7 +162,7 @@ max_cost_usd: 0.5
 ```markdown
 ---
 provider: azure-foundry
-models: grok-4.6-expert,DeepSeek-V4-Pro-expert,gpt-5.6-sol
+models: grok-4.6-expert,DeepSeek-V4-Pro-expert,gpt-6-sol
 ---
 ```
 

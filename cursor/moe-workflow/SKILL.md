@@ -33,7 +33,7 @@ Typical file:
 ```yaml
 ---
 provider: azure-foundry
-models: grok-4.6-expert,DeepSeek-V4-Pro-expert,gpt-5.6-sol
+models: grok-4.6-expert,DeepSeek-V4-Pro-expert,gpt-6-sol
 max_tokens: 8000
 retries: 1
 ---

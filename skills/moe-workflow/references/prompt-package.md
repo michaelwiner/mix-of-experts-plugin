@@ -74,14 +74,14 @@ Attributed Q&A format:
 **Q (grok-4.6-expert):** Does the importer need to resume after a crash, or can it restart?
 **A (director):** Must resume. Jobs run up to 20 minutes and the host restarts nightly.
 
-**Q (gpt-5.6-sol, DeepSeek-V4-Pro-expert):** Is Postgres available, or only SQLite?
+**Q (gpt-6-sol, DeepSeek-V4-Pro-expert):** Is Postgres available, or only SQLite?
 **A (director, confirmed by user):** Postgres (Neon). SQLite is being retired.
 ```
 
 **Context added:**
-- `jobs` table schema (requested by DeepSeek-V4-Pro-expert, gpt-5.6-sol) → section 5
+- `jobs` table schema (requested by DeepSeek-V4-Pro-expert, gpt-6-sol) → section 5
 - p95 import duration for the last 30 days (requested by grok-4.6-expert) → section 6
-- Load-test results (requested by gpt-5.6-sol) → unavailable: never run
+- Load-test results (requested by gpt-6-sol) → unavailable: never run
 
 Merge duplicate questions and requests, and list every expert who asked. Keep each answer to
 10 lines or fewer. Mark answers that came from the human as `confirmed by user`. The context

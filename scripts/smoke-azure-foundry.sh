@@ -18,7 +18,7 @@ if [[ -z "${AZURE_OPENAI_API_KEY:-}" || -z "${AZURE_OPENAI_ENDPOINT:-}" ]]; then
   exit 2
 fi
 
-DEPLOYMENTS="${AZURE_DEPLOYMENTS:-grok-4.6-expert,DeepSeek-V4-Pro-expert,gpt-5.6-sol}"
+DEPLOYMENTS="${AZURE_DEPLOYMENTS:-grok-4.6-expert,DeepSeek-V4-Pro-expert,gpt-6-sol}"
 
 WORK_DIR=$(mktemp -d)
 trap 'rm -rf "$WORK_DIR"' EXIT

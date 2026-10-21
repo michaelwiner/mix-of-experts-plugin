@@ -35,7 +35,7 @@ if [[ ! -f "$SETTINGS" ]]; then
     SEED_MODELS="openai/gpt-6-sol,google/gemini-3.8-flash,x-ai/grok-4.7"
   else
     SEED_PROVIDER="azure-foundry"
-    SEED_MODELS="grok-4.6-expert,DeepSeek-V4-Pro-expert,gpt-5.6-sol"
+    SEED_MODELS="grok-4.6-expert,DeepSeek-V4-Pro-expert,gpt-6-sol"
   fi
   cat > "$SETTINGS" <<SETTINGS_EOF
 ---

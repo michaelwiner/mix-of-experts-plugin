@@ -38,7 +38,7 @@ models are used). Azure always needs one, because `models:` has no default.
 ---
 provider: azure-foundry
 azure_endpoint: https://YOUR-RESOURCE.services.ai.azure.com
-models: grok-4.6-expert,DeepSeek-V4-Pro-expert,gpt-5.6-sol
+models: grok-4.6-expert,DeepSeek-V4-Pro-expert,gpt-6-sol
 max_tokens: 8000
 temperature: 0.3
 timeout: 300
